@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>POS App - Loading Offline</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+    }
+    
+    .container {
+      text-align: center;
+      padding: 2rem;
+    }
+    
+    .spinner {
+      width: 60px;
+      height: 60px;
+      border: 4px solid rgba(255, 255, 255, 0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 2rem;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    h1 {
+      font-size: 2rem;
+      margin-bottom: 1rem;
+    }
+    
+    p {
+      font-size: 1.1rem;
+      opacity: 0.9;
+      margin-bottom: 0.5rem;
+    }
+    
+    .status {
+      display: inline-block;
+      padding: 0.5rem 1rem;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 20px;
+      margin-top: 1rem;
+      font-size: 0.9rem;
+    }
+    
+    .retry-btn {
+      margin-top: 2rem;
+      padding: 0.8rem 2rem;
+      background: white;
+      color: #667eea;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+    
+    .retry-btn:hover {
+      transform: scale(1.05);
+    }
+    
+    .retry-btn:active {
+      transform: scale(0.95);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="spinner"></div>
+    <h1>📱 POS App</h1>
+    <p>Memuat aplikasi dari cache...</p>
+    <div class="status" id="status">📵 Mode Offline</div>
+    <button class="retry-btn" onclick="location.reload()">Coba Lagi</button>
+  </div>
+  
+  <script>
+    // Redirect to app when online
+    if (navigator.onLine) {
+      document.getElementById('status').textContent = '🌐 Terhubung - Memuat...';
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 1000);
+    } else {
+      // Try to load from cache
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 2000);
+    }
+    
+    // Listen for online event
+    window.addEventListener('online', () => {
+      document.getElementById('status').textContent = '🌐 Terhubung!';
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 500);
+    });
+  </script>
+</body>
+</html>
