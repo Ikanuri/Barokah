@@ -20,15 +20,20 @@ export default function LoginPage() {
   const [mounted, setMounted] = useState(false);
   const router = useRouter();
   const { setAuth } = useAuthStore();
-  const { isDark, toggleTheme, setTheme } = useThemeStore();
+  const { isDark, toggleTheme } = useThemeStore();
 
-  // Handle client-side mounting to prevent hydration mismatch
   useEffect(() => {
     setMounted(true);
-    setTheme(isDark);
   }, []);
 
-  // Check backend connection - only once after mount
+  useEffect(() => {
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [isDark]);
+
   useEffect(() => {
     if (!mounted) return;
     
@@ -50,8 +55,6 @@ export default function LoginPage() {
         if (isMounted) setBackendStatus('offline');
       }
     };
-    
-    // Small delay to ensure stable render
     const timer = setTimeout(checkBackend, 500);
     
     return () => {
@@ -114,7 +117,6 @@ export default function LoginPage() {
     }
   };
 
-  // Prevent hydration mismatch - render loading state on server
   if (!mounted) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[var(--bg-base)]">

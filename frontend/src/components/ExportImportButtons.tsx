@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Button } from './ui/Button';
 import { FileSpreadsheet, Download, Upload } from 'lucide-react';
+import api from '@/lib/api';
 
 interface ExportImportButtonsProps {
   entityType: 'products' | 'transactions' | 'users' | 'categories' | 'customers';
@@ -22,8 +23,6 @@ export function ExportImportButtons({
   const [showDropdown, setShowDropdown] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
-
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -77,36 +76,29 @@ export function ExportImportButtons({
 
   const config = entityConfig[entityType];
 
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  };
+
   const handleExport = async () => {
     try {
       setIsExporting(true);
       setShowDropdown(false);
-      
-      const token = localStorage.getItem('token');
+
       const queryParams = new URLSearchParams(exportFilters as any).toString();
-      const url = `${API_URL}${config.exportEndpoint}${queryParams ? `?${queryParams}` : ''}`;
-      
-      const response = await fetch(url, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
+      const endpoint = `${config.exportEndpoint}${queryParams ? `?${queryParams}` : ''}`;
 
-      if (!response.ok) throw new Error('Export failed');
-
-      const blob = await response.blob();
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = downloadUrl;
-      a.download = `${entityType}_${new Date().toISOString().split('T')[0]}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(downloadUrl);
-      document.body.removeChild(a);
-      
+      const response = await api.get(endpoint, { responseType: 'blob' });
+      downloadBlob(response.data, `${entityType}_${new Date().toISOString().split('T')[0]}.csv`);
       alert(`✅ Export ${config.label} berhasil!`);
-    } catch (error) {
-      console.error('Export error:', error);
+    } catch {
       alert(`❌ Export ${config.label} gagal!`);
     } finally {
       setIsExporting(false);
@@ -116,31 +108,10 @@ export function ExportImportButtons({
   const handleDownloadTemplate = async () => {
     try {
       setShowDropdown(false);
-      
-      const token = localStorage.getItem('token');
-      const url = `${API_URL}${config.templateEndpoint}`;
-      
-      const response = await fetch(url, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) throw new Error('Download template failed');
-
-      const blob = await response.blob();
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = downloadUrl;
-      a.download = `${entityType}_template.csv`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(downloadUrl);
-      document.body.removeChild(a);
-      
+      const response = await api.get(config.templateEndpoint, { responseType: 'blob' });
+      downloadBlob(response.data, `${entityType}_template.csv`);
       alert(`✅ Download template ${config.label} berhasil!`);
-    } catch (error) {
-      console.error('Download template error:', error);
+    } catch {
       alert(`❌ Download template ${config.label} gagal!`);
     }
   };
@@ -171,25 +142,15 @@ export function ExportImportButtons({
     try {
       setIsImporting(true);
       setShowImportDialog(false);
-      
-      const token = localStorage.getItem('token');
+
       const formData = new FormData();
       formData.append('file', file);
       formData.append('mode', importMode);
-      
-      const response = await fetch(`${API_URL}${config.importEndpoint}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-        body: formData,
+
+      const response = await api.post(config.importEndpoint, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || 'Import failed');
-      }
+      const data = response.data;
 
       let message = `✅ Import ${config.label} berhasil!\n\n`;
       message += `📊 Diimport: ${data.imported} data\n`;
@@ -205,8 +166,7 @@ export function ExportImportButtons({
       alert(message);
       onImportSuccess?.();
     } catch (error: any) {
-      console.error('Import error:', error);
-      alert(`❌ Import ${config.label} gagal!\n${error.message}`);
+      alert(`❌ Import ${config.label} gagal!\n${error.response?.data?.message || error.message}`);
     } finally {
       setIsImporting(false);
       if (fileInputRef.current) {

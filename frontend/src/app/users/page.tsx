@@ -61,26 +61,18 @@ export default function UsersPage() {
     try {
       setLoading(true);
       
-      // ⚡ CACHE CHECK: Load dari sessionStorage dulu (INSTANT!)
       const cachedData = sessionStorage.getItem('users_cache');
       if (cachedData) {
-        const cached = JSON.parse(cachedData);
-        setUsers(cached);
+        setUsers(JSON.parse(cachedData));
         setLoading(false);
-        console.log(`⚡ [USERS CACHE] Loaded ${cached.length} users from sessionStorage (INSTANT!)`);
-        return; // STOP di sini, NO API CALL!
+        return;
       }
-      
       const response = await api.get('/users');
       const usersData = response.data.data || [];
       setUsers(usersData);
-      
-      // 💾 SAVE to cache
       sessionStorage.setItem('users_cache', JSON.stringify(usersData));
-      console.log(`💾 [USERS CACHE] Saved ${usersData.length} users to sessionStorage`);
-    } catch (error: any) {
+    } catch {
       toast.error('Gagal memuat pengguna');
-      console.error(error);
     } finally {
       setLoading(false);
     }
@@ -88,40 +80,27 @@ export default function UsersPage() {
 
   const fetchRoles = async () => {
     try {
-      console.log('Fetching roles from API...');
       const response = await api.get('/roles');
-      console.log('Roles API response:', response.data);
-      const rolesData = response.data.data || response.data || [];
-      console.log('Roles loaded:', rolesData);
-      setRoles(rolesData);
-    } catch (error: any) {
-      console.error('Error fetching roles:', error);
-      console.error('Error response:', error.response?.data);
-      // Fallback to hardcoded roles if API fails
-      const fallbackRoles = [
+      setRoles(response.data.data || response.data || []);
+    } catch {
+      setRoles([
         { value: 'admin', label: 'Admin', permissions: [] },
         { value: 'manager', label: 'Manager', permissions: [] },
         { value: 'kasir', label: 'Kasir', permissions: [] },
-      ];
-      console.log('Using fallback roles:', fallbackRoles);
-      setRoles(fallbackRoles);
+      ]);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Validate role selected
     if (!formData.role) {
       toast.error('Silakan pilih role untuk user');
       return;
     }
 
     try {
-      console.log('Submitting user data:', formData);
-      
       if (editingUser) {
-        // Update
         const updateData: any = {
           name: formData.name,
           email: formData.email,
@@ -132,27 +111,17 @@ export default function UsersPage() {
         if (formData.password) {
           updateData.password = formData.password;
         }
-        console.log('Updating user with data:', updateData);
         await api.put(`/users/${editingUser.id}`, updateData);
         toast.success('User berhasil diupdate!');
       } else {
-        // Create
-        console.log('Creating new user with data:', formData);
         await api.post('/users', formData);
         toast.success('User berhasil dibuat!');
       }
-      
       setShowModal(false);
       resetForm();
-      
-      // 🗑️ CLEAR CACHE setelah create/update
       sessionStorage.removeItem('users_cache');
-      console.log('🗑️ [USERS CACHE] Cleared after user mutation');
-      
       fetchUsers();
     } catch (error: any) {
-      console.error('Error saving user:', error);
-      console.error('Error response:', error.response?.data);
       const errorMessage = error.response?.data?.message || 'Error menyimpan user';
       const validationErrors = error.response?.data?.errors;
       
@@ -204,8 +173,6 @@ export default function UsersPage() {
       
       // 🗑️ CLEAR CACHE setelah delete
       sessionStorage.removeItem('users_cache');
-      console.log('🗑️ [USERS CACHE] Cleared after user deletion');
-      
       fetchUsers();
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Gagal menghapus pengguna');

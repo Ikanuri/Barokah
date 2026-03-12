@@ -55,9 +55,8 @@ export default function StoresPage() {
       for (const store of response.data) {
         fetchStoreStats(store.id);
       }
-    } catch (error: any) {
+    } catch {
       toast.error('Gagal memuat data toko');
-      console.error('Error:', error);
     } finally {
       setLoading(false);
     }
@@ -70,8 +69,8 @@ export default function StoresPage() {
         ...prev,
         [storeId]: response.data
       }));
-    } catch (error) {
-      console.error(`Failed to fetch stats for store ${storeId}`, error);
+    } catch {
+      // ignore stats fetch failure
     }
   };
 
@@ -92,7 +91,6 @@ export default function StoresPage() {
       handleCloseModal();
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Gagal menyimpan toko');
-      console.error('Save error:', error);
     } finally {
       setSaving(false);
     }
@@ -120,7 +118,6 @@ export default function StoresPage() {
       fetchStores();
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Gagal menghapus toko');
-      console.error('Delete error:', error);
     }
   };
 
@@ -169,7 +166,6 @@ export default function StoresPage() {
       fetchStores();
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Gagal sinkronisasi harga');
-      console.error('Sync error:', error);
     } finally {
       setSyncing(false);
     }

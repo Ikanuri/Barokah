@@ -60,25 +60,16 @@ export default function CustomersPage() {
     try {
       setLoading(true);
       
-      // ⚡ CACHE CHECK: Load dari sessionStorage dulu (INSTANT!)
       const cachedData = sessionStorage.getItem('customers_cache');
       if (cachedData) {
-        const cached = JSON.parse(cachedData);
-        setCustomers(cached);
+        setCustomers(JSON.parse(cachedData));
         setLoading(false);
-        console.log(`⚡ [CUSTOMERS CACHE] Loaded ${cached.length} customers from sessionStorage (INSTANT!)`);
-        return; // STOP di sini, NO API CALL!
+        return;
       }
-      
-      const response = await api.get('/customers', {
-        params: { search, per_page: 100 }
-      });
+      const response = await api.get('/customers', { params: { search, per_page: 100 } });
       const customersData = response.data.data || [];
       setCustomers(customersData);
-      
-      // 💾 SAVE to cache
       sessionStorage.setItem('customers_cache', JSON.stringify(customersData));
-      console.log(`💾 [CUSTOMERS CACHE] Saved ${customersData.length} customers to sessionStorage`);
     } catch (error: any) {
       toast.error('Gagal memuat data pelanggan');
     } finally {
@@ -93,8 +84,7 @@ export default function CustomersPage() {
         ? response.data 
         : (response.data?.data || []);
       setTiers(tiersData);
-    } catch (error: any) {
-      console.error('Failed to fetch tiers:', error);
+    } catch {
       setTiers([]);
     }
   };
@@ -118,11 +108,7 @@ export default function CustomersPage() {
 
       setShowModal(false);
       resetForm();
-      
-      // 🗑️ CLEAR CACHE setelah create/update
       sessionStorage.removeItem('customers_cache');
-      console.log('🗑️ [CUSTOMERS CACHE] Cleared after customer mutation');
-      
       fetchCustomers();
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Terjadi kesalahan');
@@ -148,11 +134,7 @@ export default function CustomersPage() {
     try {
       await api.delete(`/customers/${id}`);
       toast.success('Pelanggan berhasil dihapus');
-      
-      // 🗑️ CLEAR CACHE setelah delete
       sessionStorage.removeItem('customers_cache');
-      console.log('🗑️ [CUSTOMERS CACHE] Cleared after customer deletion');
-      
       fetchCustomers();
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Gagal menghapus pelanggan');

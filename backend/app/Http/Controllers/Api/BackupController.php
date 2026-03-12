@@ -3,482 +3,220 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Product;
-use App\Models\Category;
-use App\Models\Transaction;
-use App\Models\TransactionItem;
-use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Response;
 
 class BackupController extends Controller
 {
+    // Tables to backup/restore, in dependency order (parent tables first)
+    private array $tables = [
+        'categories',
+        'stores',
+        'customer_tiers',
+        'users',
+        'customers',
+        'products',
+        'product_units',
+        'product_prices',
+        'transactions',
+        'transaction_items',
+        'expenses',
+    ];
+
     /**
-     * Create full backup of all data
+     * Download full backup as a single JSON file
      */
     public function createFullBackup()
     {
         try {
+            $data = [];
+
+            foreach ($this->tables as $table) {
+                try {
+                    $data[$table] = DB::table($table)->get()->map(fn($row) => (array) $row)->toArray();
+                } catch (\Exception) {
+                    $data[$table] = []; // Table may not exist yet
+                }
+            }
+
             $backup = [
-                'created_at' => now()->toISOString(),
-                'version' => '1.0',
-                'data' => [
-                    'categories' => Category::all()->toArray(),
-                    'products' => Product::with('units')->get()->toArray(),
-                    'users' => User::select('id', 'name', 'email', 'role', 'is_active', 'created_at')->get()->toArray(),
-                    'transactions' => Transaction::with('items.product')->get()->toArray(),
-                ]
+                'meta' => [
+                    'app'        => 'POS Kasir',
+                    'version'    => '2.0',
+                    'created_at' => now()->toISOString(),
+                    'tables'     => array_keys($data),
+                ],
+                'data' => $data,
             ];
 
-            $filename = 'backup_' . now()->format('Y-m-d_His') . '.json';
-            $json = json_encode($backup, JSON_PRETTY_PRINT);
+            $filename = 'pos_backup_' . now()->format('Y-m-d_His') . '.json';
+            $json = json_encode($backup, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
 
             return response($json, 200)
                 ->header('Content-Type', 'application/json')
                 ->header('Content-Disposition', "attachment; filename=\"{$filename}\"");
 
         } catch (\Exception $e) {
-            return response()->json([
-                'message' => 'Backup failed',
-                'error' => $e->getMessage()
-            ], 500);
+            return response()->json(['message' => 'Backup gagal', 'error' => $e->getMessage()], 500);
         }
     }
 
     /**
-     * Restore from backup file
+     * Restore from backup JSON file
+     * mode=overwrite: hapus semua data lama, ganti dengan backup
+     * mode=merge: upsert — update jika id ada, insert jika belum ada
      */
     public function restoreFromBackup(Request $request)
     {
         $request->validate([
-            'file' => 'required|file|mimes:json',
+            'file' => 'required|file|mimes:json,txt',
             'mode' => 'required|in:merge,overwrite',
         ]);
 
         try {
-            $file = $request->file('file');
-            $content = file_get_contents($file->path());
-            $backup = json_decode($content, true);
+            $content = file_get_contents($request->file('file')->path());
+            $backup  = json_decode($content, true);
 
             if (!$backup || !isset($backup['data'])) {
-                return response()->json([
-                    'message' => 'Invalid backup file format'
-                ], 400);
+                return response()->json(['message' => 'Format file backup tidak valid'], 400);
             }
 
+            $data  = $backup['data'];
+            $mode  = $request->input('mode');
+            $stats = [];
+
+            DB::statement('SET FOREIGN_KEY_CHECKS=0');
             DB::beginTransaction();
 
-            $mode = $request->input('mode');
-            $stats = [
-                'categories' => 0,
-                'products' => 0,
-                'users' => 0,
-                'transactions' => 0,
-            ];
-
-            // OVERWRITE MODE: Clear existing data
             if ($mode === 'overwrite') {
-                TransactionItem::query()->delete();
-                Transaction::query()->delete();
-                Product::query()->delete();
-                // Don't delete categories and users (keep system integrity)
-            }
-
-            // Restore Categories
-            if (isset($backup['data']['categories'])) {
-                foreach ($backup['data']['categories'] as $cat) {
-                    $existing = Category::where('id', $cat['id'])->first();
-                    if ($existing && $mode === 'merge') {
-                        $existing->update([
-                            'name' => $cat['name'],
-                            'description' => $cat['description'] ?? null,
-                        ]);
-                    } elseif (!$existing) {
-                        Category::create($cat);
+                // Truncate in reverse order to avoid FK violations
+                foreach (array_reverse($this->tables) as $table) {
+                    try {
+                        DB::table($table)->truncate();
+                    } catch (\Exception) {
+                        // Skip tables that don't exist
                     }
-                    $stats['categories']++;
                 }
             }
 
-            // Restore Products
-            if (isset($backup['data']['products'])) {
-                foreach ($backup['data']['products'] as $prod) {
-                    $units = $prod['units'] ?? [];
-                    unset($prod['units']);
+            // Restore each table
+            foreach ($this->tables as $table) {
+                $rows  = $data[$table] ?? [];
+                $count = 0;
 
-                    $existing = Product::where('id', $prod['id'])->first();
-                    if ($existing && $mode === 'merge') {
-                        $existing->update($prod);
-                        $product = $existing;
-                    } elseif (!$existing) {
-                        $product = Product::create($prod);
+                foreach ($rows as $row) {
+                    $row = (array) $row;
+
+                    try {
+                        if ($mode === 'overwrite') {
+                            DB::table($table)->insert($row);
+                        } else {
+                            // Merge: upsert by id
+                            if (isset($row['id']) && DB::table($table)->where('id', $row['id'])->exists()) {
+                                DB::table($table)->where('id', $row['id'])->update($row);
+                            } else {
+                                DB::table($table)->insert($row);
+                            }
+                        }
+                        $count++;
+                    } catch (\Exception) {
+                        // Skip rows that fail
                     }
-                    $stats['products']++;
                 }
-            }
 
-            // Restore Transactions
-            if (isset($backup['data']['transactions'])) {
-                foreach ($backup['data']['transactions'] as $trans) {
-                    $items = $trans['items'] ?? [];
-                    unset($trans['items']);
-
-                    $existing = Transaction::where('id', $trans['id'])->first();
-                    if ($existing && $mode === 'merge') {
-                        continue; // Skip existing transactions in merge mode
-                    }
-
-                    $transaction = Transaction::create($trans);
-                    
-                    foreach ($items as $item) {
-                        $item['transaction_id'] = $transaction->id;
-                        TransactionItem::create($item);
-                    }
-                    
-                    $stats['transactions']++;
-                }
+                $stats[$table] = $count;
             }
 
             DB::commit();
+            DB::statement('SET FOREIGN_KEY_CHECKS=1');
+
+            // Reset auto-increment after restore
+            foreach ($this->tables as $table) {
+                try {
+                    $maxId = DB::table($table)->max('id');
+                    if ($maxId) {
+                        DB::statement("ALTER TABLE `{$table}` AUTO_INCREMENT = " . ($maxId + 1));
+                    }
+                } catch (\Exception) {
+                    // Skip
+                }
+            }
+
+            $total = array_sum($stats);
 
             return response()->json([
-                'message' => 'Restore completed successfully',
-                'stats' => $stats,
+                'message' => "Restore berhasil — {$total} baris dipulihkan",
+                'stats'   => $stats,
             ]);
 
         } catch (\Exception $e) {
             DB::rollBack();
-            
-            return response()->json([
-                'message' => 'Restore failed',
-                'error' => $e->getMessage()
-            ], 500);
+            DB::statement('SET FOREIGN_KEY_CHECKS=1');
+
+            return response()->json(['message' => 'Restore gagal: ' . $e->getMessage()], 500);
         }
     }
 
     /**
-     * Send backup file to Telegram
+     * Send backup to Telegram
      */
     public function sendBackupToTelegram(Request $request)
     {
         $request->validate([
             'bot_token' => 'required|string',
-            'chat_id' => 'required|string',
+            'chat_id'   => 'required|string',
         ]);
 
         try {
-            // Create backup
+            $data = [];
+            foreach ($this->tables as $table) {
+                try {
+                    $data[$table] = DB::table($table)->get()->map(fn($row) => (array) $row)->toArray();
+                } catch (\Exception) {
+                    $data[$table] = [];
+                }
+            }
+
             $backup = [
-                'created_at' => now()->toISOString(),
-                'version' => '1.0',
-                'data' => [
-                    'categories' => Category::all()->toArray(),
-                    'products' => Product::with('units')->get()->toArray(),
-                    'users' => User::select('id', 'name', 'email', 'role', 'is_active', 'created_at')->get()->toArray(),
-                    'transactions' => Transaction::with('items.product')->get()->toArray(),
-                ]
+                'meta' => [
+                    'app'        => 'POS Kasir',
+                    'version'    => '2.0',
+                    'created_at' => now()->toISOString(),
+                ],
+                'data' => $data,
             ];
 
-            $filename = 'backup_' . now()->format('Y-m-d_His') . '.json';
-            $json = json_encode($backup, JSON_PRETTY_PRINT);
+            $filename = 'pos_backup_' . now()->format('Y-m-d_His') . '.json';
+            $json     = json_encode($backup, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
 
-            // Save temporarily
             $tempPath = storage_path('app/temp/' . $filename);
             if (!file_exists(dirname($tempPath))) {
                 mkdir(dirname($tempPath), 0755, true);
             }
             file_put_contents($tempPath, $json);
 
-            // Send to Telegram
             $botToken = $request->input('bot_token');
-            $chatId = $request->input('chat_id');
-            $url = "https://api.telegram.org/bot{$botToken}/sendDocument";
+            $chatId   = $request->input('chat_id');
 
-            $response = Http::attach(
-                'document', 
-                file_get_contents($tempPath), 
+            $response = \Illuminate\Support\Facades\Http::attach(
+                'document',
+                file_get_contents($tempPath),
                 $filename
-            )->post($url, [
+            )->post("https://api.telegram.org/bot{$botToken}/sendDocument", [
                 'chat_id' => $chatId,
-                'caption' => '📦 POS Backup - ' . now()->format('d M Y H:i:s')
+                'caption' => '📦 POS Backup — ' . now()->format('d M Y H:i:s'),
             ]);
 
-            // Clean up temp file
             unlink($tempPath);
 
             if ($response->successful()) {
-                return response()->json([
-                    'message' => 'Backup sent to Telegram successfully',
-                    'filename' => $filename,
-                ]);
-            } else {
-                return response()->json([
-                    'message' => 'Failed to send to Telegram',
-                    'error' => $response->json()
-                ], 500);
+                return response()->json(['message' => 'Backup terkirim ke Telegram', 'filename' => $filename]);
             }
+
+            return response()->json(['message' => 'Gagal kirim ke Telegram', 'error' => $response->json()], 500);
 
         } catch (\Exception $e) {
-            return response()->json([
-                'message' => 'Failed to send backup to Telegram',
-                'error' => $e->getMessage()
-            ], 500);
+            return response()->json(['message' => 'Gagal: ' . $e->getMessage()], 500);
         }
-    }
-
-    /**
-     * Export Categories to CSV
-     */
-    public function exportCategories()
-    {
-        $categories = Category::all();
-        $filename = 'categories_' . now()->format('Y-m-d_His') . '.csv';
-
-        $headers = [
-            'Content-Type' => 'text/csv',
-            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
-        ];
-
-        $callback = function() use ($categories) {
-            $file = fopen('php://output', 'w');
-            
-            fputcsv($file, ['ID', 'Name', 'Description', 'Created At']);
-
-            foreach ($categories as $cat) {
-                fputcsv($file, [
-                    $cat->id,
-                    $cat->name,
-                    $cat->description,
-                    $cat->created_at->format('Y-m-d H:i:s'),
-                ]);
-            }
-
-            fclose($file);
-        };
-
-        return Response::stream($callback, 200, $headers);
-    }
-
-    /**
-     * Import Categories from CSV
-     */
-    public function importCategories(Request $request)
-    {
-        $request->validate([
-            'file' => 'required|file|mimes:csv,txt',
-            'mode' => 'nullable|string|in:add,overwrite',
-        ]);
-
-        $file = $request->file('file');
-        $mode = $request->input('mode', 'add');
-        
-        if ($mode === 'overwrite') {
-            Category::query()->delete();
-        }
-        
-        $handle = fopen($file->path(), 'r');
-        fgetcsv($handle); // Skip header
-
-        $imported = 0;
-        $errors = [];
-        $rowNumber = 1;
-
-        while (($data = fgetcsv($handle)) !== false) {
-            $rowNumber++;
-            
-            try {
-                if (empty(array_filter($data))) continue;
-
-                $name = $data[1] ?? null;
-                if (empty($name)) {
-                    $errors[] = "Row {$rowNumber}: Missing category name";
-                    continue;
-                }
-
-                $categoryData = [
-                    'name' => $name,
-                    'description' => $data[2] ?? null,
-                ];
-
-                $existing = Category::where('name', $name)->first();
-                if ($existing && $mode === 'add') {
-                    $existing->update($categoryData);
-                } else {
-                    Category::create($categoryData);
-                }
-
-                $imported++;
-            } catch (\Exception $e) {
-                $errors[] = "Row {$rowNumber}: " . $e->getMessage();
-            }
-        }
-
-        fclose($handle);
-
-        return response()->json([
-            'message' => 'Import completed',
-            'imported' => $imported,
-            'errors' => $errors,
-        ]);
-    }
-
-    /**
-     * Get Category CSV Template
-     */
-    public function getCategoryTemplate()
-    {
-        $filename = 'category_template.csv';
-
-        $headers = [
-            'Content-Type' => 'text/csv',
-            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
-        ];
-
-        $callback = function() {
-            $file = fopen('php://output', 'w');
-            
-            fputcsv($file, ['ID (kosongkan untuk baru)', 'Nama Kategori*', 'Deskripsi']);
-            fputcsv($file, ['', 'Makanan', 'Kategori makanan dan snack']);
-            fputcsv($file, ['', 'Minuman', 'Kategori minuman']);
-            fputcsv($file, ['', 'Elektronik', 'Kategori barang elektronik']);
-
-            fclose($file);
-        };
-
-        return Response::stream($callback, 200, $headers);
-    }
-
-    /**
-     * Export Customers to CSV
-     */
-    public function exportCustomers()
-    {
-        $customers = \App\Models\Customer::all();
-        $filename = 'customers_' . now()->format('Y-m-d_His') . '.csv';
-
-        $headers = [
-            'Content-Type' => 'text/csv',
-            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
-        ];
-
-        $callback = function() use ($customers) {
-            $file = fopen('php://output', 'w');
-            
-            fputcsv($file, ['ID', 'Name', 'Phone', 'Email', 'Address', 'Created At']);
-
-            foreach ($customers as $customer) {
-                fputcsv($file, [
-                    $customer->id,
-                    $customer->name,
-                    $customer->phone,
-                    $customer->email,
-                    $customer->address,
-                    $customer->created_at->format('Y-m-d H:i:s'),
-                ]);
-            }
-
-            fclose($file);
-        };
-
-        return Response::stream($callback, 200, $headers);
-    }
-
-    /**
-     * Import Customers from CSV
-     */
-    public function importCustomers(Request $request)
-    {
-        $request->validate([
-            'file' => 'required|file|mimes:csv,txt',
-            'mode' => 'nullable|string|in:add,overwrite',
-        ]);
-
-        $file = $request->file('file');
-        $mode = $request->input('mode', 'add');
-        
-        if ($mode === 'overwrite') {
-            \App\Models\Customer::query()->delete();
-        }
-        
-        $handle = fopen($file->path(), 'r');
-        fgetcsv($handle); // Skip header
-
-        $imported = 0;
-        $errors = [];
-        $rowNumber = 1;
-
-        while (($data = fgetcsv($handle)) !== false) {
-            $rowNumber++;
-            
-            try {
-                if (empty(array_filter($data))) continue;
-
-                $name = $data[1] ?? null;
-                $phone = $data[2] ?? null;
-
-                if (empty($name)) {
-                    $errors[] = "Row {$rowNumber}: Missing customer name";
-                    continue;
-                }
-
-                $customerData = [
-                    'name' => $name,
-                    'phone' => $phone,
-                    'email' => $data[3] ?? null,
-                    'address' => $data[4] ?? null,
-                ];
-
-                if ($phone) {
-                    $existing = \App\Models\Customer::where('phone', $phone)->first();
-                    if ($existing && $mode === 'add') {
-                        $existing->update($customerData);
-                    } else {
-                        \App\Models\Customer::create($customerData);
-                    }
-                } else {
-                    \App\Models\Customer::create($customerData);
-                }
-
-                $imported++;
-            } catch (\Exception $e) {
-                $errors[] = "Row {$rowNumber}: " . $e->getMessage();
-            }
-        }
-
-        fclose($handle);
-
-        return response()->json([
-            'message' => 'Import completed',
-            'imported' => $imported,
-            'errors' => $errors,
-        ]);
-    }
-
-    /**
-     * Get Customer CSV Template
-     */
-    public function getCustomerTemplate()
-    {
-        $filename = 'customer_template.csv';
-
-        $headers = [
-            'Content-Type' => 'text/csv',
-            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
-        ];
-
-        $callback = function() {
-            $file = fopen('php://output', 'w');
-            
-            fputcsv($file, ['ID (kosongkan untuk baru)', 'Nama*', 'Telepon', 'Email', 'Alamat']);
-            fputcsv($file, ['', 'John Doe', '081234567890', 'john@example.com', 'Jl. Example No. 123']);
-            fputcsv($file, ['', 'Jane Smith', '081298765432', 'jane@example.com', 'Jl. Sample No. 456']);
-
-            fclose($file);
-        };
-
-        return Response::stream($callback, 200, $headers);
     }
 }

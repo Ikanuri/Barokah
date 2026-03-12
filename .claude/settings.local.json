@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs wc:*)",
+      "Bash(where php:*)",
+      "Bash(wc -l /c/pos-app/frontend/src/app/*.tsx /c/pos-app/frontend/src/app/login/*.tsx)",
+      "Bash(wc -l /c/pos-app/frontend/src/components/*.tsx /c/pos-app/frontend/src/lib/*.ts /c/pos-app/frontend/src/store/*.ts)",
+      "Bash(wc -l /c/pos-app/frontend/src/components/pos/*.tsx /c/pos-app/frontend/src/components/pos/*.ts /c/pos-app/frontend/src/components/transactions/*.tsx /c/pos-app/frontend/src/components/transactions/*.ts /c/pos-app/frontend/src/components/ui/*.tsx)",
+      "Bash(grep -rn \"console\\\\.\\\\\\(log\\\\|error\\\\|warn\\\\\\)\" c:/pos-app/frontend/src --include=*.tsx --include=*.ts)",
+      "Bash(ls c:/pos-app/*.md)",
+      "Bash(curl -s http://localhost:3000)",
+      "Bash(curl -s http://localhost:3000/login)",
+      "Bash(npm install:*)",
+      "Bash(npm list:*)",
+      "Bash(php -l app/Http/Controllers/Api/TransactionController.php)",
+      "Bash(php -l \"c:/pos-app/backend/app/Http/Controllers/Api/TransactionController.php\")",
+      "Bash(php -l \"c:\\\\pos-app\\\\backend\\\\app\\\\Http\\\\Controllers\\\\Api\\\\TransactionController.php\")",
+      "Bash(php -l \"c:/pos-app/backend/app/Models/Transaction.php\")",
+      "Bash(php artisan:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}

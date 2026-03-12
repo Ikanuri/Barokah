@@ -49,7 +49,7 @@ class ExportImportController extends Controller
                     $product->name,
                     $product->sku,
                     $product->barcode,
-                    $product->category->name,
+                    $product->category?->name ?? '',
                     $product->description,
                     $product->base_price,
                     $product->selling_price,
@@ -80,9 +80,7 @@ class ExportImportController extends Controller
         
         // OVERWRITE MODE: Delete ALL products first
         if ($mode === 'overwrite') {
-            $deletedCount = Product::count();
             Product::query()->delete();
-            \Log::info("Overwrite mode: Deleted ALL {$deletedCount} products before import");
         }
         
         $handle = fopen($file->path(), 'r');
@@ -258,7 +256,6 @@ class ExportImportController extends Controller
                     if ($existingProduct) {
                         // Update existing product
                         $existingProduct->update($productData);
-                        \Log::info("Updated existing product: {$existingProduct->name} (ID: {$existingProduct->id})");
                     } else {
                         // Create new product
                         Product::create($productData);
@@ -268,10 +265,6 @@ class ExportImportController extends Controller
                 $imported++;
             } catch (\Exception $e) {
                 $errors[] = "Row {$rowNumber}: " . $e->getMessage();
-                \Log::error("Import error at row {$rowNumber}: " . $e->getMessage(), [
-                    'data' => $data,
-                    'trace' => $e->getTraceAsString()
-                ]);
             }
         }
 
@@ -289,10 +282,10 @@ class ExportImportController extends Controller
     {
         $query = Transaction::with(['user', 'items.product']);
 
-        if ($request->has('start_date')) {
+        if ($request->filled('start_date')) {
             $query->whereDate('created_at', '>=', $request->start_date);
         }
-        if ($request->has('end_date')) {
+        if ($request->filled('end_date')) {
             $query->whereDate('created_at', '<=', $request->end_date);
         }
 
@@ -318,8 +311,8 @@ class ExportImportController extends Controller
             foreach ($transactions as $transaction) {
                 fputcsv($file, [
                     $transaction->transaction_code,
-                    $transaction->user->name,
-                    $transaction->created_at->format('Y-m-d H:i:s'),
+                    $transaction->user?->name ?? '',
+                    $transaction->created_at?->format('Y-m-d H:i:s') ?? '',
                     $transaction->subtotal,
                     $transaction->tax,
                     $transaction->discount,
@@ -336,6 +329,128 @@ class ExportImportController extends Controller
         };
 
         return Response::stream($callback, 200, $headers);
+    }
+
+    // Get transaction CSV template
+    public function getTransactionTemplate()
+    {
+        $filename = 'transaction_template.csv';
+
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
+        ];
+
+        $callback = function () {
+            $file = fopen('php://output', 'w');
+
+            fputcsv($file, [
+                'Kode Transaksi*', 'Kasir (Email)*', 'Subtotal*', 'Pajak', 'Diskon',
+                'Total*', 'Jumlah Bayar*', 'Kembalian', 'Metode Pembayaran (cash/qris/transfer)', 'Status (paid/pending/cancelled)'
+            ]);
+
+            fputcsv($file, [
+                'TRX-20240101-001', 'kasir@pos.com', '50000', '0', '0',
+                '50000', '50000', '0', 'cash', 'paid'
+            ]);
+
+            fputcsv($file, [
+                'TRX-20240101-002', 'kasir@pos.com', '75000', '0', '5000',
+                '70000', '100000', '30000', 'qris', 'paid'
+            ]);
+
+            fclose($file);
+        };
+
+        return Response::stream($callback, 200, $headers);
+    }
+
+    // Import transactions from CSV
+    public function importTransactions(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|file|mimes:csv,txt',
+            'mode' => 'nullable|string|in:add,overwrite',
+        ]);
+
+        $file = $request->file('file');
+        $mode = $request->input('mode', 'add');
+
+        if ($mode === 'overwrite') {
+            Transaction::query()->delete();
+        }
+
+        $handle = fopen($file->path(), 'r');
+        fgetcsv($handle); // Skip header
+
+        $imported = 0;
+        $errors = [];
+        $rowNumber = 1;
+
+        while (($data = fgetcsv($handle)) !== false) {
+            $rowNumber++;
+
+            try {
+                if (empty(array_filter($data))) continue;
+
+                $transactionCode = trim($data[0] ?? '');
+                $kasirEmail      = trim($data[1] ?? '');
+                $subtotal        = floatval($data[2] ?? 0);
+                $tax             = floatval($data[3] ?? 0);
+                $discount        = floatval($data[4] ?? 0);
+                $total           = floatval($data[5] ?? 0);
+                $paidAmount      = floatval($data[6] ?? 0);
+                $changeAmount    = floatval($data[7] ?? 0);
+                $paymentMethod   = trim($data[8] ?? 'cash');
+                $status          = trim($data[9] ?? 'paid');
+
+                if (empty($transactionCode) || empty($kasirEmail)) {
+                    $errors[] = "Row {$rowNumber}: Kode transaksi dan email kasir wajib diisi";
+                    continue;
+                }
+
+                $kasir = \App\Models\User::where('email', $kasirEmail)->first();
+                if (!$kasir) {
+                    $errors[] = "Row {$rowNumber}: Kasir dengan email '{$kasirEmail}' tidak ditemukan";
+                    continue;
+                }
+
+                $transactionData = [
+                    'transaction_code' => $transactionCode,
+                    'user_id'          => $kasir->id,
+                    'subtotal'         => $subtotal,
+                    'tax'              => $tax,
+                    'discount'         => $discount,
+                    'total'            => $total,
+                    'paid_amount'      => $paidAmount,
+                    'paid_total'       => $paidAmount,
+                    'change_amount'    => $changeAmount,
+                    'payment_method'   => $paymentMethod,
+                    'payment_status'   => $status === 'paid' ? 'paid' : 'pending',
+                    'status'           => in_array($status, ['paid', 'pending', 'cancelled']) ? $status : 'paid',
+                ];
+
+                $existing = Transaction::where('transaction_code', $transactionCode)->first();
+
+                if ($existing) {
+                    $existing->update($transactionData);
+                } else {
+                    Transaction::create($transactionData);
+                }
+
+                $imported++;
+            } catch (\Exception $e) {
+                $errors[] = "Row {$rowNumber}: " . $e->getMessage();
+            }
+        }
+
+        fclose($handle);
+
+        return response()->json([
+            'message' => 'Import completed',
+            'imported' => $imported,
+            'errors' => $errors,
+        ]);
     }
 
     // Get CSV template
@@ -455,6 +570,235 @@ class ExportImportController extends Controller
         };
 
         return Response::stream($callback, 200, $headers);
+    }
+
+    // ===========================
+    // CATEGORIES EXPORT/IMPORT
+    // ===========================
+
+    public function exportCategories()
+    {
+        $categories = \App\Models\Category::all();
+        $filename = 'categories_' . now()->format('Y-m-d_His') . '.csv';
+
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
+        ];
+
+        $callback = function() use ($categories) {
+            $file = fopen('php://output', 'w');
+            fputcsv($file, ['ID', 'Nama Kategori', 'Deskripsi', 'Dibuat']);
+            foreach ($categories as $cat) {
+                fputcsv($file, [
+                    $cat->id,
+                    $cat->name,
+                    $cat->description,
+                    $cat->created_at->format('Y-m-d H:i:s'),
+                ]);
+            }
+            fclose($file);
+        };
+
+        return Response::stream($callback, 200, $headers);
+    }
+
+    public function getCategoryTemplate()
+    {
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="category_template.csv"',
+        ];
+
+        $callback = function() {
+            $file = fopen('php://output', 'w');
+            fputcsv($file, ['ID (kosongkan untuk baru)', 'Nama Kategori*', 'Deskripsi']);
+            fputcsv($file, ['', 'Makanan', 'Produk makanan dan snack']);
+            fputcsv($file, ['', 'Minuman', 'Produk minuman']);
+            fclose($file);
+        };
+
+        return Response::stream($callback, 200, $headers);
+    }
+
+    public function importCategories(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|file|mimes:csv,txt',
+            'mode' => 'nullable|string|in:add,overwrite',
+        ]);
+
+        $file = $request->file('file');
+        $mode = $request->input('mode', 'add');
+
+        if ($mode === 'overwrite') {
+            \App\Models\Category::query()->delete();
+        }
+
+        $handle = fopen($file->path(), 'r');
+        fgetcsv($handle);
+
+        $imported = 0;
+        $errors = [];
+        $rowNumber = 1;
+
+        while (($data = fgetcsv($handle)) !== false) {
+            $rowNumber++;
+            try {
+                if (empty(array_filter($data))) continue;
+
+                $name = trim($data[1] ?? '');
+                if (empty($name)) {
+                    $errors[] = "Row {$rowNumber}: Nama kategori wajib diisi";
+                    continue;
+                }
+
+                $catData = [
+                    'name'        => $name,
+                    'description' => $data[2] ?? null,
+                ];
+
+                $existing = \App\Models\Category::whereRaw('LOWER(name) = ?', [strtolower($name)])->first();
+
+                if ($existing) {
+                    $existing->update($catData);
+                } else {
+                    \App\Models\Category::create($catData);
+                }
+
+                $imported++;
+            } catch (\Exception $e) {
+                $errors[] = "Row {$rowNumber}: " . $e->getMessage();
+            }
+        }
+
+        fclose($handle);
+
+        return response()->json([
+            'message'  => 'Import completed',
+            'imported' => $imported,
+            'errors'   => $errors,
+        ]);
+    }
+
+    // ===========================
+    // CUSTOMERS EXPORT/IMPORT
+    // ===========================
+
+    public function exportCustomers()
+    {
+        $customers = \App\Models\Customer::all();
+        $filename = 'customers_' . now()->format('Y-m-d_His') . '.csv';
+
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
+        ];
+
+        $callback = function() use ($customers) {
+            $file = fopen('php://output', 'w');
+            fputcsv($file, ['ID', 'Nama', 'No. HP', 'Email', 'Alamat', 'Total Pembelian', 'Catatan', 'Dibuat']);
+            foreach ($customers as $cust) {
+                fputcsv($file, [
+                    $cust->id,
+                    $cust->name,
+                    $cust->phone,
+                    $cust->email,
+                    $cust->address,
+                    $cust->total_purchases,
+                    $cust->notes,
+                    $cust->created_at->format('Y-m-d H:i:s'),
+                ]);
+            }
+            fclose($file);
+        };
+
+        return Response::stream($callback, 200, $headers);
+    }
+
+    public function getCustomerTemplate()
+    {
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="customer_template.csv"',
+        ];
+
+        $callback = function() {
+            $file = fopen('php://output', 'w');
+            fputcsv($file, ['ID (kosongkan untuk baru)', 'Nama*', 'No. HP', 'Email', 'Alamat', 'Total Pembelian', 'Catatan']);
+            fputcsv($file, ['', 'Budi Santoso', '08123456789', 'budi@email.com', 'Jl. Merdeka No. 1', '0', '']);
+            fputcsv($file, ['', 'Siti Rahayu', '08987654321', '', 'Jl. Sudirman No. 5', '0', 'Pelanggan tetap']);
+            fclose($file);
+        };
+
+        return Response::stream($callback, 200, $headers);
+    }
+
+    public function importCustomers(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|file|mimes:csv,txt',
+            'mode' => 'nullable|string|in:add,overwrite',
+        ]);
+
+        $file = $request->file('file');
+        $mode = $request->input('mode', 'add');
+
+        if ($mode === 'overwrite') {
+            \App\Models\Customer::query()->delete();
+        }
+
+        $handle = fopen($file->path(), 'r');
+        fgetcsv($handle);
+
+        $imported = 0;
+        $errors = [];
+        $rowNumber = 1;
+
+        while (($data = fgetcsv($handle)) !== false) {
+            $rowNumber++;
+            try {
+                if (empty(array_filter($data))) continue;
+
+                $name = trim($data[1] ?? '');
+                if (empty($name)) {
+                    $errors[] = "Row {$rowNumber}: Nama pelanggan wajib diisi";
+                    continue;
+                }
+
+                $custData = [
+                    'name'            => $name,
+                    'phone'           => $data[2] ?? null,
+                    'email'           => $data[3] ?? null,
+                    'address'         => $data[4] ?? null,
+                    'total_purchases' => floatval($data[5] ?? 0),
+                    'notes'           => $data[6] ?? null,
+                ];
+
+                $phone = trim($data[2] ?? '');
+                $existing = !empty($phone)
+                    ? \App\Models\Customer::where('phone', $phone)->first()
+                    : null;
+
+                if ($existing) {
+                    $existing->update($custData);
+                } else {
+                    \App\Models\Customer::create($custData);
+                }
+
+                $imported++;
+            } catch (\Exception $e) {
+                $errors[] = "Row {$rowNumber}: " . $e->getMessage();
+            }
+        }
+
+        fclose($handle);
+
+        return response()->json([
+            'message'  => 'Import completed',
+            'imported' => $imported,
+            'errors'   => $errors,
+        ]);
     }
 
     /**

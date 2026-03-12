@@ -2,7 +2,7 @@ const withPWA = require('next-pwa')({
   dest: 'public',
   register: true,
   skipWaiting: true,
-  disable: false, // ✅ Enable PWA even in dev for offline testing
+  disable: process.env.NODE_ENV === 'development', // Disable in dev to avoid SW conflict with sw-custom.js
   
   // Build-time precaching (critical for offline)
   buildExcludes: [/middleware-manifest\.json$/],

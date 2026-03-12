@@ -7,11 +7,11 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import EditTransactionModal from '@/components/EditTransactionModal';
 import { ExportImportButtons } from '@/components/ExportImportButtons';
-import { Search, Eye, Download, Receipt, RefreshCw, Plus, Minus, Trash2 } from 'lucide-react';
+import { Search, Receipt, RefreshCw, XCircle } from 'lucide-react';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 import { formatCurrency } from '@/lib/utils';
-import { getCachedTransactions, setCachedTransactions, invalidateTransactionsCache } from '@/lib/db';
+import { getCachedTransactions, setCachedTransactions } from '@/lib/db';
 import { onSyncEvent, handleSyncEvent } from '@/lib/broadcast';
 
 interface Transaction {
@@ -36,6 +36,8 @@ interface Transaction {
   items_count: number;
   status?: string;
   items?: TransactionItem[];
+  change_returned?: boolean;
+  change_amount?: number;
 }
 
 interface TransactionItem {
@@ -52,156 +54,90 @@ interface TransactionItem {
 
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [loading, setLoading] = useState(false); // ✅ Start with false - will show loading only when fetching
+  const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  
-  // 🔍 NEW: Toggle Filters
-  const [showFilters, setShowFilters] = useState(false);
-  const [filterDate, setFilterDate] = useState(''); // Single date picker
+  const [filterDate, setFilterDate] = useState('');
   const [filterCustomer, setFilterCustomer] = useState('');
   const [filterCashier, setFilterCashier] = useState('');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<string>('');
   const [customers, setCustomers] = useState<any[]>([]);
   const [cashiers, setCashiers] = useState<any[]>([]);
-  
-  // Edit & Payment states
-  const [isEditMode, setIsEditMode] = useState(false);
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [paymentAmount, setPaymentAmount] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('cash');
-  
-  // Edit Items Modal states (old - will be replaced with inline edit)
-  const [showEditItemsModal, setShowEditItemsModal] = useState(false);
-  const [editItems, setEditItems] = useState<any[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
-  const [searchProduct, setSearchProduct] = useState('');
-  
-  // Inline Edit Mode (NEW for detail modal)
-  const [inlineEditMode, setInlineEditMode] = useState(false);
-  const [tempItems, setTempItems] = useState<any[]>([]);
-  const [tempPaymentAmount, setTempPaymentAmount] = useState('');
-  const [ignoreStock, setIgnoreStock] = useState(false); // Override stock validation
-  
-  // Edit Payment Method state
-  const [showEditPaymentMethodModal, setShowEditPaymentMethodModal] = useState(false);
-  const [newPaymentMethod, setNewPaymentMethod] = useState('');
 
-  // 🔧 FIX: Use useCallback with cache support like POS and products
   const fetchTransactions = useCallback(async (useCache = true) => {
     try {
-      // 🔥 Try cache first (if no filters applied)
       const hasFilters = search || filterDate || filterCustomer || filterCashier || paymentStatusFilter;
       
       if (useCache && !hasFilters) {
         const cached = await getCachedTransactions();
         if (cached) {
-          console.log('[TRANSACTIONS] Using cached data, fetching fresh in background...');
           setTransactions(cached.data);
           setTimeout(() => fetchTransactionsInBackground(), 100);
           return;
         }
-      } else if (hasFilters) {
-        console.log('[TRANSACTIONS] Filters applied, bypassing cache');
       }
-      
+
       setLoading(true);
-      console.log('🔄 [TRANSACTIONS] Fetching from API...');
-      
       const response = await api.get('/transactions', {
         params: { 
           search,
-          start_date: filterDate || undefined, // Use single date
-          end_date: filterDate || undefined,   // Same date for exact match
+          start_date: filterDate || undefined,
+          end_date: filterDate || undefined,
           customer_id: filterCustomer || undefined,
           user_id: filterCashier || undefined,
           payment_status: paymentStatusFilter || undefined,
-          per_page: 1000, // ✅ Tampilkan semua transaksi (max 1000)
+          per_page: 1000,
         }
       });
       
       const transactionsData = response.data.data || [];
       setTransactions(transactionsData);
       
-      // 🔥 Cache hasil jika tidak ada filter
-      if (!hasFilters) {
-        await setCachedTransactions(transactionsData);
-      }
-      
-      console.log('✅ Loaded transactions:', transactionsData.length, 'items');
-      console.log('📊 Payment status breakdown:', {
-        total: transactionsData.length,
-        unpaid: transactionsData.filter((t: Transaction) => t.payment_status === 'unpaid').length,
-        partial: transactionsData.filter((t: Transaction) => t.payment_status === 'partial').length,
-        paid: transactionsData.filter((t: Transaction) => t.payment_status === 'paid').length,
-      });
+      if (!hasFilters) await setCachedTransactions(transactionsData);
     } catch (error: any) {
-      console.error('❌ Error fetching transactions:', error);
       toast.error('Gagal memuat transaksi: ' + (error.response?.data?.message || error.message));
     } finally {
       setLoading(false);
     }
   }, [search, filterDate, filterCustomer, filterCashier, paymentStatusFilter]);
 
-  // Background fetch - silent update without loading spinner
   const fetchTransactionsInBackground = useCallback(async () => {
     try {
-      console.log('[TRANSACTIONS] Background fetch started...');
-      const response = await api.get('/transactions', {
-        params: { per_page: 1000 }
-      });
-      
+      const response = await api.get('/transactions', { params: { per_page: 1000 } });
       const transactionsData = response.data.data || [];
       await setCachedTransactions(transactionsData);
       setTransactions(transactionsData);
-      console.log('[TRANSACTIONS] Background updated', transactionsData.length, 'items');
-    } catch (error) {
-      console.error('[TRANSACTIONS] Background fetch failed:', error);
+    } catch {
+      // silent background update
     }
   }, []);
 
-  // 🔧 FIX: Auto-fetch on mount and when filters change
   useEffect(() => {
-    fetchProducts(); // Load products for inline edit
-    fetchCustomers(); // Load customers for filter
-    fetchCashiers(); // Load cashiers for filter
+    fetchCustomers();
+    fetchCashiers();
   }, []);
 
-  // 🔧 Auto-refresh when filters change
   useEffect(() => {
-    fetchTransactions(); // Will use cache on first load (no filters)
+    fetchTransactions();
   }, [fetchTransactions]);
 
-  // 🔥 Real-time sync: Listen for broadcast events dari semua tabs
   useEffect(() => {
-    console.log('🎧 [TRANSACTIONS] Setting up broadcast listeners');
-    
     const unsubscribe = onSyncEvent(async (event) => {
-      // Handle cache invalidation
       await handleSyncEvent(event);
-      
-      // Refresh data jika related ke transactions
       if (event.type.startsWith('transaction_') || event.type === 'sync_completed') {
-        console.log('🔄 [TRANSACTIONS] Fetching fresh data after:', event.type);
-        fetchTransactions(false); // Force fresh fetch, no loading spinner
+        fetchTransactions(false);
       }
     });
-    
-    console.log('✅ [TRANSACTIONS] Broadcast listeners registered');
-
-    return () => {
-      console.log('🔌 [TRANSACTIONS] Removing broadcast listeners');
-      unsubscribe();
-    };
+    return () => unsubscribe();
   }, [fetchTransactions]);
 
   const fetchCustomers = async () => {
     try {
       const response = await api.get('/customers', { params: { per_page: 1000 } });
       setCustomers(response.data.data || []);
-    } catch (error) {
-      console.error('Error fetching customers:', error);
+    } catch {
+      // ignore
     }
   };
 
@@ -209,8 +145,8 @@ export default function TransactionsPage() {
     try {
       const response = await api.get('/users', { params: { per_page: 100 } });
       setCashiers(response.data.data || []);
-    } catch (error) {
-      console.error('Error fetching cashiers:', error);
+    } catch {
+      // ignore
     }
   };
 
@@ -221,13 +157,10 @@ export default function TransactionsPage() {
 
   const handleViewDetail = async (transaction: Transaction) => {
     try {
-      console.log('Fetching transaction detail for ID:', transaction.id);
       const response = await api.get(`/transactions/${transaction.id}`);
-      console.log('Transaction detail:', response.data);
       setSelectedTransaction(response.data.data || response.data);
       setShowDetailModal(true);
-    } catch (error: any) {
-      console.error('Error fetching transaction detail:', error);
+    } catch {
       toast.error('Gagal memuat detail transaksi');
     }
   };
@@ -235,302 +168,22 @@ export default function TransactionsPage() {
   const closeDetailModal = () => {
     setShowDetailModal(false);
     setSelectedTransaction(null);
-    setIsEditMode(false);
   };
 
-  const handleMakePayment = async () => {
-    if (!selectedTransaction) return;
-    
-    if (!paymentAmount || parseFloat(paymentAmount) <= 0) {
-      toast.error('Masukkan jumlah pembayaran');
-      return;
-    }
-
+  const handleCancelTransaction = async (e: React.MouseEvent, transaction: Transaction) => {
+    e.stopPropagation(); // jangan trigger handleViewDetail
+    if (transaction.status === 'cancelled') return;
+    if (!confirm(`Batalkan transaksi ${transaction.invoice_number}?\nStok produk akan dikembalikan.`)) return;
     try {
-      await api.post(`/transactions/${selectedTransaction.id}/payment`, {
-        amount: parseFloat(paymentAmount),
-        payment_method: paymentMethod,
-      });
-
-      toast.success('Pembayaran berhasil dicatat');
-      setShowPaymentModal(false);
-      setPaymentAmount('');
-      
-      // Refresh transaction detail
-      const response = await api.get(`/transactions/${selectedTransaction.id}`);
-      setSelectedTransaction(response.data.data || response.data);
-      
-      // Refresh list
-      fetchTransactions();
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Gagal mencatat pembayaran');
+      await api.post(`/transactions/${transaction.id}/cancel`);
+      toast.success('Transaksi berhasil dibatalkan — stok dikembalikan');
+      fetchTransactions(false);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message ?? 'Gagal membatalkan transaksi');
     }
   };
 
-  // Open Edit Items Modal
-  const handleOpenEditItems = () => {
-    if (!selectedTransaction?.items) return;
-    
-    // Convert transaction items to editable format
-    const itemsForEdit = selectedTransaction.items.map((item, index) => ({
-      id: item.id,
-      product_id: item.product_id || null,
-      product_unit_id: item.product_unit_id || null,
-      product_name: item.product_name,
-      unit_name: item.unit_name,
-      variant_name: item.variant_name,
-      quantity: item.quantity,
-      price: item.price,
-      subtotal: item.subtotal,
-      tempId: `temp-${index}`, // For identifying items before save
-    }));
-    
-    setEditItems(itemsForEdit);
-    setShowEditItemsModal(true);
-    fetchProducts(); // Load products for adding new items
-  };
 
-  // Toggle inline edit mode in detail modal
-  const toggleInlineEditMode = () => {
-    if (!selectedTransaction) return;
-    
-    if (!inlineEditMode) {
-      // Entering edit mode - copy current items to temp
-      const itemsForEdit = selectedTransaction.items?.map((item, index) => ({
-        id: item.id,
-        product_id: item.product_id || null,
-        product_unit_id: item.product_unit_id || null,
-        product_name: item.product_name,
-        unit_name: item.unit_name,
-        variant_name: item.variant_name,
-        quantity: item.quantity,
-        price: typeof item.price === 'number' ? item.price : parseFloat(item.price || '0'),
-        subtotal: typeof item.subtotal === 'number' ? item.subtotal : parseFloat(item.subtotal || '0'),
-        tempId: `temp-${index}`,
-      })) || [];
-      
-      setTempItems(itemsForEdit);
-      setTempPaymentAmount(selectedTransaction.paid_total?.toString() || '0');
-      setInlineEditMode(true);
-      fetchProducts(); // Load products for search
-    } else {
-      // Exiting edit mode - discard changes
-      setInlineEditMode(false);
-      setTempItems([]);
-      setTempPaymentAmount('');
-      setIgnoreStock(false); // Reset ignore stock
-    }
-  };
-
-  // Update temp item quantity
-  const updateTempItemQuantity = (tempId: string, newQuantity: number) => {
-    if (newQuantity < 1) return;
-    
-    setTempItems(items =>
-      items.map(item =>
-        item.tempId === tempId
-          ? { ...item, quantity: newQuantity, subtotal: parseFloat(item.price) * newQuantity }
-          : item
-      )
-    );
-  };
-
-  // Remove temp item
-  const removeTempItem = (tempId: string) => {
-    if (tempItems.length === 1) {
-      toast.error('Transaksi harus memiliki minimal 1 item');
-      return;
-    }
-    setTempItems(items => items.filter(item => item.tempId !== tempId));
-  };
-
-  // Add product to temp items
-  const addProductToTemp = (product: any, unit: any = null) => {
-    // Use selling_price from unit or product
-    const priceRaw = unit ? (unit.selling_price || unit.price) : product.selling_price;
-    const price = parseFloat(priceRaw || 0);
-    const unitName = unit ? unit.unit_name : product.base_unit;
-    
-    const newItem = {
-      id: null,
-      product_id: product.id,
-      product_name: product.name,
-      unit_name: unitName,
-      product_unit_id: unit?.id || null,
-      variant_name: null,
-      quantity: 1,
-      price: price,
-      subtotal: price,
-      tempId: `new-${Date.now()}-${Math.random()}`,
-    };
-    
-    setTempItems([...tempItems, newItem]);
-    setSearchProduct('');
-  };
-
-  // Save inline edits
-  const saveInlineEdits = async () => {
-    if (!selectedTransaction) return;
-    
-    if (tempItems.length === 0) {
-      toast.error('Transaksi harus memiliki minimal 1 item');
-      return;
-    }
-
-    try {
-      const itemsPayload = tempItems.map(item => ({
-        product_id: item.product_id,
-        product_unit_id: item.product_unit_id || null,
-        variant_name: item.variant_name || null,
-        quantity: item.quantity,
-      }));
-
-      const totalTemp = tempItems.reduce((sum, item) => sum + item.subtotal, 0);
-      const paidValue = parseFloat(tempPaymentAmount || '0');
-
-      await api.put(`/transactions/${selectedTransaction.id}`, {
-        items: itemsPayload,
-        paid_amount: paidValue,
-        ignore_stock: ignoreStock, // Override stock validation
-      });
-
-      toast.success('Transaksi berhasil diupdate');
-      setInlineEditMode(false);
-      setIgnoreStock(false); // Reset ignore stock
-      
-      // Refresh transaction detail
-      const response = await api.get(`/transactions/${selectedTransaction.id}`);
-      setSelectedTransaction(response.data.data || response.data);
-      
-      // Refresh list
-      fetchTransactions();
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Gagal update transaksi');
-    }
-  };
-
-  // Fetch products for adding to transaction
-  const fetchProducts = async () => {
-    try {
-      const response = await api.get('/products', {
-        params: { per_page: 1000, is_active: 1 }
-      });
-      setProducts(response.data.data || []);
-    } catch (error) {
-      console.error('Error fetching products:', error);
-    }
-  };
-
-  // Update item quantity in edit mode
-  const updateEditItemQuantity = (tempId: string, newQuantity: number) => {
-    if (newQuantity < 1) return;
-    
-    setEditItems(items =>
-      items.map(item =>
-        item.tempId === tempId
-          ? { ...item, quantity: newQuantity, subtotal: item.price * newQuantity }
-          : item
-      )
-    );
-  };
-
-  // Remove item from edit list
-  const removeEditItem = (tempId: string) => {
-    setEditItems(items => items.filter(item => item.tempId !== tempId));
-  };
-
-  // Add product to edit items
-  const addProductToEdit = (product: any, unit: any = null) => {
-    const price = unit ? unit.price : product.price;
-    const unitName = unit ? unit.unit_name : product.base_unit;
-    
-    const newItem = {
-      id: null, // New item, no ID yet
-      product_id: product.id,
-      product_name: product.name,
-      unit_name: unitName,
-      product_unit_id: unit?.id || null,
-      variant_name: null,
-      quantity: 1,
-      price: price,
-      subtotal: price,
-      tempId: `new-${Date.now()}-${Math.random()}`,
-    };
-    
-    setEditItems([...editItems, newItem]);
-    setSearchProduct(''); // Clear search
-  };
-
-  // Save edited items
-  const handleSaveEditedItems = async () => {
-    if (!selectedTransaction) return;
-    
-    if (editItems.length === 0) {
-      toast.error('Transaksi harus memiliki minimal 1 item');
-      return;
-    }
-
-    try {
-      // Transform items to API format
-      const itemsPayload = editItems.map(item => ({
-        product_id: item.product_id,
-        product_unit_id: item.product_unit_id || null,
-        variant_name: item.variant_name || null,
-        quantity: item.quantity,
-      }));
-
-      await api.put(`/transactions/${selectedTransaction.id}`, {
-        items: itemsPayload,
-      });
-
-      toast.success('Item transaksi berhasil diupdate');
-      setShowEditItemsModal(false);
-      
-      // Refresh transaction detail
-      const response = await api.get(`/transactions/${selectedTransaction.id}`);
-      setSelectedTransaction(response.data.data || response.data);
-      
-      // Refresh list
-      fetchTransactions();
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Gagal update item transaksi');
-    }
-  };
-
-  // Update payment method
-  const handleUpdatePaymentMethod = async () => {
-    if (!selectedTransaction || !newPaymentMethod) return;
-
-    try {
-      await api.patch(`/transactions/${selectedTransaction.id}/payment-method`, {
-        payment_method: newPaymentMethod,
-      });
-
-      toast.success('Metode pembayaran berhasil diubah');
-      setShowEditPaymentMethodModal(false);
-      
-      // Refresh transaction detail
-      const response = await api.get(`/transactions/${selectedTransaction.id}`);
-      setSelectedTransaction(response.data.data || response.data);
-      
-      // Refresh list
-      fetchTransactions();
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Gagal update metode pembayaran');
-    }
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('id-ID', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
-
-  // 📅 NEW: Format date for grouping (without time)
   const formatDateOnly = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('id-ID', {
       weekday: 'long',
@@ -540,19 +193,15 @@ export default function TransactionsPage() {
     });
   };
 
-  // 📅 NEW: Group transactions by date
   const groupTransactionsByDate = (transactions: Transaction[]) => {
     const grouped: Record<string, Transaction[]> = {};
-    
     transactions.forEach((transaction) => {
-      const date = new Date(transaction.date).toISOString().split('T')[0]; // YYYY-MM-DD
+      const date = new Date(transaction.date).toISOString().split('T')[0];
       if (!grouped[date]) {
         grouped[date] = [];
       }
       grouped[date].push(transaction);
     });
-    
-    // Sort dates descending (newest first)
     return Object.keys(grouped)
       .sort((a, b) => b.localeCompare(a))
       .map((date) => ({
@@ -672,7 +321,6 @@ export default function TransactionsPage() {
                   Cari
                 </Button>
               </div>
-              {/* 📅 NEW: Single Date Filter + Advanced Filters */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                 <div>
                  
@@ -768,7 +416,6 @@ export default function TransactionsPage() {
                 <p className="text-gray-500 dark:text-gray-400 text-sm mt-2">Transaksi yang dibuat akan muncul di sini</p>
               </div>
             ) : (
-              /* 📅 GROUPED BY DATE */
               <div className="divide-y divide-gray-200 dark:divide-gray-700">
                 {groupTransactionsByDate(transactions).map((group) => (
                   <div key={group.date}>
@@ -861,21 +508,24 @@ export default function TransactionsPage() {
                                   </div>
                                 )}
                                 
-                                {/* Mobile: Show kurang/kembalian badge */}
                                 <div className="md:hidden mt-1">
                                   {(() => {
-                                    const paidTotal = transaction.paid_total || 0;
+                                    const paidTotal = transaction.paid_total || transaction.payment_amount || 0;
                                     const total = transaction.total;
                                     const changeAmount = transaction.change || 0;
-                                    
-                                    // Jika ada kembalian (dari backend)
-                                    if (changeAmount > 0) {
+                                    if (transaction.change_returned) {
+                                      return (
+                                        <span className="inline-block text-xs text-amber-600 dark:text-amber-400" title="Kembalian sudah dikembalikan ke pelanggan">
+                                          ↩
+                                        </span>
+                                      );
+                                    } else if (changeAmount > 0) {
                                       return (
                                         <span className="inline-block text-xs font-semibold text-green-600 dark:text-green-400">
                                           Kembali: {formatCurrency(changeAmount)}
                                         </span>
                                       );
-                                    } else if (transaction.payment_status === 'paid') {
+                                    } else if (paidTotal >= total) {
                                       return (
                                         <span className="inline-block text-xs text-gray-500 dark:text-gray-400">
                                           Lunas ✓
@@ -894,27 +544,32 @@ export default function TransactionsPage() {
                               </td>
                               <td className="px-3 md:px-6 py-3 text-right hidden md:table-cell">
                                 {(() => {
-                                  const paidTotal = transaction.paid_total || 0;
+                                  const paidTotal = transaction.paid_total || transaction.payment_amount || 0;
                                   const total = transaction.total;
                                   const changeAmount = transaction.change || 0;
-                                  
-                                  // Jika ada kembalian (dari backend)
-                                  if (changeAmount > 0) {
+                                  if (transaction.change_returned) {
+                                    return (
+                                      <div>
+                                        <div className="text-sm text-gray-500 dark:text-gray-400">Lunas</div>
+                                        <div className="text-xs text-amber-600 dark:text-amber-400 mt-0.5" title={`Kembalian ${formatCurrency(Number(transaction.change_amount) || changeAmount)} sudah dikembalikan`}>
+                                          ↩
+                                        </div>
+                                      </div>
+                                    );
+                                  } else if (changeAmount > 0) {
                                     return (
                                       <div className="text-sm font-semibold text-green-600 dark:text-green-400">
                                         Kembalian<br />
                                         {formatCurrency(changeAmount)}
                                       </div>
                                     );
-                                  } else if (transaction.payment_status === 'paid') {
-                                    // Lunas pas
+                                  } else if (paidTotal >= total) {
                                     return (
                                       <div className="text-sm text-gray-500 dark:text-gray-400">
                                         Lunas
                                       </div>
                                     );
                                   } else {
-                                    // Belum lunas - tampilkan kekurangan (merah)
                                     const shortage = total - paidTotal;
                                     return (
                                       <div className="text-sm font-semibold text-red-600 dark:text-red-400">
@@ -943,7 +598,22 @@ export default function TransactionsPage() {
                                       Lunas
                                     </div>
                                   )}
+                                  {transaction.status === 'cancelled' && (
+                                    <div className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
+                                      Dibatalkan
+                                    </div>
+                                  )}
                                 </div>
+                                {transaction.status !== 'cancelled' && (
+                                  <button
+                                    onClick={(e) => handleCancelTransaction(e, transaction)}
+                                    className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                                    title="Batalkan transaksi & kembalikan stok"
+                                  >
+                                    <XCircle size={12} />
+                                    Batalkan
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           ))}
@@ -958,406 +628,6 @@ export default function TransactionsPage() {
         </Card>
       </div>
 
-      {/* OLD DETAIL MODAL REMOVED - Now using EditTransactionModal component at the end of this file */}
-
-      {/* Payment Modal */}
-      {showPaymentModal && selectedTransaction && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <Card className="w-full max-w-md bg-white dark:bg-gray-800">
-            <CardHeader>
-              <h2 className="text-xl font-bold dark:text-gray-100">Catat Pembayaran</h2>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                {selectedTransaction.invoice_number}
-              </p>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Summary */}
-              <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600 dark:text-gray-400">Total</span>
-                  <span className="font-bold dark:text-gray-100">{formatCurrency(selectedTransaction.total)}</span>
-                </div>
-                {selectedTransaction.paid_total !== undefined && selectedTransaction.paid_total > 0 && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600 dark:text-gray-400">Sudah Dibayar</span>
-                    <span className="font-semibold text-green-600 dark:text-green-400">
-                      {formatCurrency(selectedTransaction.paid_total)}
-                    </span>
-                  </div>
-                )}
-                <div className="flex justify-between text-sm font-bold border-t dark:border-gray-600 pt-2">
-                  <span className="text-gray-700 dark:text-gray-300">Sisa Hutang</span>
-                  <span className="text-red-600 dark:text-red-400">
-                    {formatCurrency(selectedTransaction.total - (selectedTransaction.paid_total || 0))}
-                  </span>
-                </div>
-              </div>
-
-              {/* Payment Method */}
-              <div>
-                <label className="block text-sm font-medium dark:text-gray-300 mb-2">Metode Pembayaran</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {['cash', 'card', 'transfer', 'qris'].map((method) => (
-                    <button
-                      key={method}
-                      onClick={() => setPaymentMethod(method)}
-                      className={`p-2 rounded-lg border-2 text-sm font-medium ${
-                        paymentMethod === method
-                          ? 'border-telegram-blue dark:border-blue-500 bg-blue-50 dark:bg-blue-900/30 dark:text-gray-100'
-                          : 'border-gray-200 dark:border-gray-600 dark:text-gray-300'
-                      }`}
-                    >
-                      {method.toUpperCase()}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Payment Amount */}
-              <div>
-                <label className="block text-sm font-medium dark:text-gray-300 mb-2">
-                  Jumlah Bayar <span className="text-red-500 dark:text-red-400">*</span>
-                </label>
-                <Input
-                  type="number"
-                  value={paymentAmount}
-                  onChange={(e) => setPaymentAmount(e.target.value)}
-                  placeholder="0"
-                  className="text-lg"
-                />
-                {paymentAmount && parseFloat(paymentAmount) > 0 && (
-                  <div className="mt-2 space-y-1 text-sm">
-                    {parseFloat(paymentAmount) >= (selectedTransaction.total - (selectedTransaction.paid_total || 0)) ? (
-                      <>
-                        <div className="text-green-600 dark:text-green-400 font-semibold">
-                          ✓ Transaksi akan lunas
-                        </div>
-                        {parseFloat(paymentAmount) > (selectedTransaction.total - (selectedTransaction.paid_total || 0)) && (
-                          <div className="text-gray-600 dark:text-gray-400">
-                            Kembalian: {formatCurrency(parseFloat(paymentAmount) - (selectedTransaction.total - (selectedTransaction.paid_total || 0)))}
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <div className="text-yellow-600 dark:text-yellow-400">
-                        Sisa setelah bayar: {formatCurrency((selectedTransaction.total - (selectedTransaction.paid_total || 0)) - parseFloat(paymentAmount))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Actions */}
-              <div className="flex gap-2 pt-4">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setShowPaymentModal(false);
-                    setPaymentAmount('');
-                  }}
-                  className="flex-1"
-                >
-                  Batal
-                </Button>
-                <Button
-                  onClick={handleMakePayment}
-                  disabled={!paymentAmount || parseFloat(paymentAmount) <= 0}
-                  className="flex-1"
-                >
-                  Catat Pembayaran
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Edit Items Modal */}
-      {showEditItemsModal && selectedTransaction && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <Card className="w-full max-w-4xl my-8 bg-white dark:bg-gray-800">
-            <CardHeader>
-              <div className="flex justify-between items-center">
-                <div>
-                  <h2 className="text-xl font-bold dark:text-gray-100">Edit Items Transaksi</h2>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                    {selectedTransaction.invoice_number}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setShowEditItemsModal(false)}
-                  className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-                >
-                  <span className="text-2xl">×</span>
-                </button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Current Items */}
-              <div>
-                <h3 className="font-semibold dark:text-gray-100 mb-2">Items Saat Ini</h3>
-                <div className="border dark:border-gray-600 rounded-lg overflow-hidden">
-                  <table className="w-full">
-                    <thead className="bg-gray-50 dark:bg-gray-700">
-                      <tr>
-                        <th className="px-4 py-2 text-left text-xs font-semibold dark:text-gray-300">Produk</th>
-                        <th className="px-4 py-2 text-center text-xs font-semibold dark:text-gray-300">Qty</th>
-                        <th className="px-4 py-2 text-right text-xs font-semibold dark:text-gray-300">Harga</th>
-                        <th className="px-4 py-2 text-right text-xs font-semibold dark:text-gray-300">Subtotal</th>
-                        <th className="px-4 py-2 text-center text-xs font-semibold dark:text-gray-300">Aksi</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y dark:divide-gray-700">
-                      {editItems.map((item) => (
-                        <tr key={item.tempId} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                          <td className="px-4 py-3">
-                            <div className="font-medium text-sm dark:text-gray-100">
-                              {item.product_name}
-                              {item.variant_name && (
-                                <span className="ml-1 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-1.5 py-0.5 rounded">
-                                  {item.variant_name}
-                                </span>
-                              )}
-                            </div>
-                            {item.unit_name && (
-                              <div className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">{item.unit_name}</div>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <div className="flex items-center justify-center gap-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 w-7 p-0"
-                                onClick={() => updateEditItemQuantity(item.tempId, item.quantity - 1)}
-                                disabled={item.quantity <= 1}
-                              >
-                                <Minus size={12} />
-                              </Button>
-                              <input
-                                type="number"
-                                min="1"
-                                value={item.quantity}
-                                onChange={(e) => {
-                                  const newQty = parseInt(e.target.value);
-                                  if (newQty > 0) {
-                                    updateEditItemQuantity(item.tempId, newQty);
-                                  }
-                                }}
-                                onFocus={(e) => e.target.select()}
-                                className="w-14 text-center text-sm border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-gray-100"
-                              />
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 w-7 p-0"
-                                onClick={() => updateEditItemQuantity(item.tempId, item.quantity + 1)}
-                              >
-                                <Plus size={12} />
-                              </Button>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-right text-sm dark:text-gray-300">
-                            {formatCurrency(item.price)}
-                          </td>
-                          <td className="px-4 py-3 text-right font-semibold text-sm dark:text-gray-100">
-                            {formatCurrency(item.subtotal)}
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <Button
-                              size="sm"
-                              variant="danger"
-                              onClick={() => removeEditItem(item.tempId)}
-                              disabled={editItems.length === 1}
-                            >
-                              <Trash2 size={14} />
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot className="bg-gray-50 dark:bg-gray-700 border-t-2 dark:border-gray-600">
-                      <tr>
-                        <td colSpan={3} className="px-4 py-3 text-right font-bold dark:text-gray-100">
-                          Total Baru:
-                        </td>
-                        <td className="px-4 py-3 text-right font-bold text-lg text-telegram-blue dark:text-blue-400">
-                          {formatCurrency(editItems.reduce((sum, item) => sum + item.subtotal, 0))}
-                        </td>
-                        <td></td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              </div>
-
-              {/* Add Product */}
-              <div className="pt-4 border-t dark:border-gray-600">
-                <h3 className="font-semibold dark:text-gray-100 mb-2">Tambah Produk</h3>
-                <div className="flex gap-2 mb-3">
-                  <Input
-                    placeholder="Cari produk..."
-                    value={searchProduct}
-                    onChange={(e) => setSearchProduct(e.target.value)}
-                    className="flex-1"
-                  />
-                </div>
-                
-                {searchProduct.length >= 2 && (
-                  <div className="border dark:border-gray-600 rounded-lg max-h-60 overflow-y-auto">
-                    {products
-                      .filter(p => 
-                        p.name.toLowerCase().includes(searchProduct.toLowerCase()) ||
-                        p.sku?.toLowerCase().includes(searchProduct.toLowerCase())
-                      )
-                      .slice(0, 10)
-                      .map((product) => (
-                        <div
-                          key={product.id}
-                          className="p-3 hover:bg-gray-50 dark:hover:bg-gray-700 border-b dark:border-gray-600 last:border-b-0"
-                        >
-                          <div className="flex justify-between items-start mb-2">
-                            <div className="flex-1">
-                              <p className="font-medium text-sm dark:text-gray-100">{product.name}</p>
-                              <p className="text-xs text-gray-600 dark:text-gray-400">
-                                Stock: {product.stock_quantity} {product.base_unit}
-                              </p>
-                            </div>
-                            <Button
-                              size="sm"
-                              onClick={() => addProductToEdit(product)}
-                              className="ml-2"
-                            >
-                              +1 {product.base_unit}
-                            </Button>
-                          </div>
-                          
-                          {/* Show units if available */}
-                          {product.units && product.units.length > 0 && (
-                            <div className="flex gap-2 flex-wrap mt-2">
-                              {product.units.map((unit: any) => (
-                                <Button
-                                  key={unit.id}
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => addProductToEdit(product, unit)}
-                                  className="text-xs"
-                                >
-                                  +1 {unit.unit_name}
-                                </Button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex gap-2 pt-4 border-t">
-                <Button
-                  variant="outline"
-                  onClick={() => setShowEditItemsModal(false)}
-                  className="flex-1"
-                >
-                  Batal
-                </Button>
-                <Button
-                  onClick={handleSaveEditedItems}
-                  disabled={editItems.length === 0}
-                  className="flex-1 bg-telegram-blue hover:bg-blue-600"
-                >
-                  Simpan Perubahan
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Edit Payment Method Modal */}
-      {showEditPaymentMethodModal && selectedTransaction && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <Card className="w-full max-w-md">
-            <CardHeader>
-              <h2 className="text-xl font-bold">Ubah Metode Pembayaran</h2>
-              <p className="text-sm text-gray-600 mt-1">
-                {selectedTransaction.invoice_number}
-              </p>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
-                  Pilih Metode Pembayaran Baru
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { value: 'cash', label: '💵 Cash', color: 'green' },
-                    { value: 'card', label: '💳 Card', color: 'blue' },
-                    { value: 'transfer', label: '🏦 Transfer', color: 'purple' },
-                    { value: 'qris', label: '📱 QRIS', color: 'orange' },
-                  ].map((method) => (
-                    <button
-                      key={method.value}
-                      onClick={() => setNewPaymentMethod(method.value)}
-                      className={`p-3 rounded-lg border-2 text-sm font-medium transition-all ${
-                        newPaymentMethod === method.value
-                          ? `border-${method.color}-500 bg-${method.color}-50 text-${method.color}-700`
-                          : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
-                      }`}
-                    >
-                      {method.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Current vs New */}
-              {newPaymentMethod !== selectedTransaction.payment_method && (
-                <div className="bg-blue-50 rounded-lg p-3 text-sm">
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-600">Metode Sekarang:</span>
-                    <span className="font-semibold">{selectedTransaction.payment_method.toUpperCase()}</span>
-                  </div>
-                  <div className="flex justify-between items-center mt-1">
-                    <span className="text-gray-600">Akan Diubah Jadi:</span>
-                    <span className="font-semibold text-blue-700">{newPaymentMethod.toUpperCase()}</span>
-                  </div>
-                </div>
-              )}
-
-              {/* Warning */}
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-xs text-yellow-800">
-                ⚠️ <strong>Perhatian:</strong> Metode pembayaran hanya bisa diubah untuk transaksi yang belum lunas.
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex gap-2 pt-4">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setShowEditPaymentMethodModal(false);
-                    setNewPaymentMethod('');
-                  }}
-                  className="flex-1"
-                >
-                  Batal
-                </Button>
-                <Button
-                  onClick={handleUpdatePaymentMethod}
-                  disabled={!newPaymentMethod || newPaymentMethod === selectedTransaction.payment_method}
-                  className="flex-1"
-                >
-                  Simpan Perubahan
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* New Modal Component */}
       {selectedTransaction && (
         <EditTransactionModal
           isOpen={showDetailModal}

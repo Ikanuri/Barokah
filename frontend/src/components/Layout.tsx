@@ -7,13 +7,12 @@ import { useAuthStore } from '@/store/auth';
 import { useThemeStore } from '@/store/theme';
 import { setupSyncListeners, startPeriodicSync } from '@/lib/sync';
 import OnlineStatusIndicator from '@/components/OnlineStatusIndicator';
-import InstallPrompt from '@/components/InstallPrompt';
-import { 
-  Home, 
-  Package, 
-  ShoppingCart, 
-  BarChart3, 
-  Users, 
+import {
+  Home,
+  Package,
+  ShoppingCart,
+  BarChart3,
+  Users,
   Settings,
   LogOut,
   Menu,
@@ -23,33 +22,44 @@ import {
   Moon,
   Sun,
   Award,
-  Store
+  Store,
+  Wallet,
+  PieChart,
+  ClipboardList,
+  HardDrive
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const menuItems = [
   { icon: Home, label: 'Dashboard', href: '/dashboard', allowedRoles: ['admin', 'manager'] },
-  { icon: ShoppingCart, label: 'Kasir', href: '/pos', allowedRoles: ['admin', 'manager', 'kasir'] }, // All can access
+  { icon: ShoppingCart, label: 'Kasir', href: '/pos', allowedRoles: ['admin', 'manager', 'kasir'] },
   { icon: Package, label: 'Produk', href: '/products', allowedRoles: ['admin', 'manager'] },
   { icon: BarChart3, label: 'Transaksi', href: '/transactions', allowedRoles: ['admin', 'manager'] },
-  { icon: Store, label: 'Manajemen Toko', href: '/stores', allowedRoles: ['admin'] }, // Multi-store management
+  { icon: ClipboardList, label: 'Rekap Shift', href: '/shift-recap', allowedRoles: ['admin', 'manager', 'kasir'] },
+  { icon: Wallet, label: 'Arus Kas', href: '/cash-flow', allowedRoles: ['admin', 'manager'] },
+  { icon: PieChart, label: 'Laba Rugi', href: '/profit-loss', allowedRoles: ['admin', 'manager'] },
+  { icon: Store, label: 'Manajemen Toko', href: '/stores', allowedRoles: ['admin'] },
   { icon: TrendingUp, label: 'Statistik Kasir', href: '/cashier-stats', allowedRoles: ['admin', 'manager'] },
   { icon: UserCircle, label: 'Pelanggan', href: '/customers', allowedRoles: ['admin', 'manager'] },
   { icon: Award, label: 'Tier Pelanggan', href: '/customer-tiers', allowedRoles: ['admin', 'manager'] },
-  { icon: Users, label: 'Pengguna', href: '/users', allowedRoles: ['admin'] }, // Admin only
-  { icon: Settings, label: 'Pengaturan', href: '/settings', allowedRoles: ['admin'] }, // Admin only
+  { icon: Users, label: 'Pengguna', href: '/users', allowedRoles: ['admin'] },
+  { icon: HardDrive, label: 'Backup & Restore', href: '/backup', allowedRoles: ['admin'] },
+  { icon: Settings, label: 'Pengaturan', href: '/settings', allowedRoles: ['admin'] },
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
-  const { isDark, toggleTheme, setTheme } = useThemeStore();
+  const { isDark, toggleTheme } = useThemeStore();
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
 
-  // Initialize theme on mount
   useEffect(() => {
-    setTheme(isDark);
-  }, []);
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [isDark]);
 
   // Disable PWA install prompt completely
   useEffect(() => {
@@ -65,7 +75,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // 🔄 Setup sync listeners for offline/online
   useEffect(() => {
     const cleanupSyncListeners = setupSyncListeners();
     const cleanupPeriodicSync = startPeriodicSync(5); // Sync every 5 minutes
@@ -77,9 +86,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   }, []);
 
   const filteredMenuItems = menuItems.filter(item => {
-    // If no allowedRoles specified, show to everyone
     if (!item.allowedRoles || item.allowedRoles.length === 0) return true;
-    // Check if user has any of the allowed roles
     return item.allowedRoles.some((role: string) => user?.roles?.includes(role));
   });
 

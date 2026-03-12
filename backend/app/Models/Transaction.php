@@ -26,6 +26,7 @@ class Transaction extends Model
         'payment_status',
         'status',
         'notes',
+        'change_returned',
     ];
 
     protected $casts = [
@@ -36,6 +37,7 @@ class Transaction extends Model
         'paid_amount' => 'decimal:2',
         'paid_total' => 'decimal:2',
         'change_amount' => 'decimal:2',
+        'change_returned' => 'boolean',
     ];
 
     public function store()

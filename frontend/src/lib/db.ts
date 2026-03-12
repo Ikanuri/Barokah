@@ -95,22 +95,11 @@ export async function getCachedTransactions(): Promise<{ data: any[]; timestamp:
     const db = await getDB();
     const cached = await db.get('transactions', 'cache');
     
-    if (!cached) {
-      console.log('📭 [IndexedDB] No transactions cache found');
-      return null;
-    }
-    
+    if (!cached) return null;
     const age = Date.now() - cached.timestamp;
-    
-    if (age > CACHE_TTL) {
-      console.log('⏰ [IndexedDB] Transactions cache expired (age:', Math.round(age / 1000), 's)');
-      return null;
-    }
-    
-    console.log('✅ [IndexedDB] Found valid transactions cache:', cached.data.length, 'items (age:', Math.round(age / 1000), 's)');
+    if (age > CACHE_TTL) return null;
     return cached;
-  } catch (error) {
-    console.error('❌ [IndexedDB] Error getting transactions cache:', error);
+  } catch {
     return null;
   }
 }
@@ -118,13 +107,9 @@ export async function getCachedTransactions(): Promise<{ data: any[]; timestamp:
 export async function setCachedTransactions(data: any[]): Promise<void> {
   try {
     const db = await getDB();
-    await db.put('transactions', {
-      data,
-      timestamp: Date.now(),
-    }, 'cache');
-    console.log('💾 [IndexedDB] Cached', data.length, 'transactions');
-  } catch (error) {
-    console.error('❌ [IndexedDB] Error caching transactions:', error);
+    await db.put('transactions', { data, timestamp: Date.now() }, 'cache');
+  } catch {
+    // ignore
   }
 }
 
@@ -132,9 +117,8 @@ export async function invalidateTransactionsCache(): Promise<void> {
   try {
     const db = await getDB();
     await db.delete('transactions', 'cache');
-    console.log('🗑️ [IndexedDB] Invalidated transactions cache');
-  } catch (error) {
-    console.error('❌ [IndexedDB] Error invalidating cache:', error);
+  } catch {
+    // ignore
   }
 }
 
@@ -152,10 +136,8 @@ export async function getCachedProducts(): Promise<{ data: any[]; timestamp: num
     const age = Date.now() - cached.timestamp;
     if (age > CACHE_TTL) return null;
     
-    console.log('✅ [IndexedDB] Found valid products cache:', cached.data.length, 'items');
     return cached;
-  } catch (error) {
-    console.error('❌ [IndexedDB] Error getting products cache:', error);
+  } catch {
     return null;
   }
 }
@@ -163,13 +145,9 @@ export async function getCachedProducts(): Promise<{ data: any[]; timestamp: num
 export async function setCachedProducts(data: any[]): Promise<void> {
   try {
     const db = await getDB();
-    await db.put('products', {
-      data,
-      timestamp: Date.now(),
-    }, 'cache');
-    console.log('💾 [IndexedDB] Cached', data.length, 'products');
-  } catch (error) {
-    console.error('❌ [IndexedDB] Error caching products:', error);
+    await db.put('products', { data, timestamp: Date.now() }, 'cache');
+  } catch {
+    // ignore
   }
 }
 
@@ -187,10 +165,8 @@ export async function getCachedCategories(): Promise<{ data: any[]; timestamp: n
     const age = Date.now() - cached.timestamp;
     if (age > CACHE_TTL) return null;
     
-    console.log('✅ [IndexedDB] Found valid categories cache:', cached.data.length, 'items');
     return cached;
-  } catch (error) {
-    console.error('❌ [IndexedDB] Error getting categories cache:', error);
+  } catch {
     return null;
   }
 }
@@ -198,13 +174,9 @@ export async function getCachedCategories(): Promise<{ data: any[]; timestamp: n
 export async function setCachedCategories(data: any[]): Promise<void> {
   try {
     const db = await getDB();
-    await db.put('categories', {
-      data,
-      timestamp: Date.now(),
-    }, 'cache');
-    console.log('💾 [IndexedDB] Cached', data.length, 'categories');
-  } catch (error) {
-    console.error('❌ [IndexedDB] Error caching categories:', error);
+    await db.put('categories', { data, timestamp: Date.now() }, 'cache');
+  } catch {
+    // ignore
   }
 }
 
@@ -221,10 +193,8 @@ export async function addPendingTransaction(transaction: any): Promise<number> {
       timestamp: Date.now(),
       synced: false,
     });
-    console.log('📥 [IndexedDB] Added pending transaction:', id);
     return id as number;
   } catch (error) {
-    console.error('❌ [IndexedDB] Error adding pending transaction:', error);
     throw error;
   }
 }
@@ -233,11 +203,8 @@ export async function getPendingTransactions(): Promise<any[]> {
   try {
     const db = await getDB();
     const all = await db.getAll('pendingTransactions');
-    const pending = all.filter(item => !item.synced);
-    console.log('📤 [IndexedDB] Found', pending.length, 'pending transactions');
-    return pending;
-  } catch (error) {
-    console.error('❌ [IndexedDB] Error getting pending transactions:', error);
+    return all.filter(item => !item.synced);
+  } catch {
     return [];
   }
 }
@@ -250,10 +217,9 @@ export async function markTransactionSynced(id: number): Promise<void> {
     if (item) {
       item.synced = true;
       await tx.store.put(item);
-      console.log('✅ [IndexedDB] Marked transaction', id, 'as synced');
     }
-  } catch (error) {
-    console.error('❌ [IndexedDB] Error marking transaction synced:', error);
+  } catch {
+    // ignore
   }
 }
 
@@ -266,10 +232,8 @@ export async function deleteSyncedTransactions(): Promise<void> {
     for (const item of synced) {
       await db.delete('pendingTransactions', item.id);
     }
-    
-    console.log('🗑️ [IndexedDB] Deleted', synced.length, 'synced transactions');
-  } catch (error) {
-    console.error('❌ [IndexedDB] Error deleting synced transactions:', error);
+  } catch {
+    // ignore
   }
 }
 
@@ -303,9 +267,8 @@ export async function cacheCredentials(email: string, password: string, user: an
       timestamp: Date.now(),
     }, email);
     
-    console.log('💾 [IndexedDB] Cached credentials for offline login');
-  } catch (error) {
-    console.error('❌ [IndexedDB] Error caching credentials:', error);
+  } catch {
+    // ignore
   }
 }
 
@@ -317,22 +280,10 @@ export async function verifyOfflineCredentials(email: string, password: string):
     const db = await getDB();
     const cached = await db.get('credentials', email);
     
-    if (!cached) {
-      console.log('📭 [IndexedDB] No cached credentials for', email);
-      return null;
-    }
-    
+    if (!cached) return null;
     const passwordHash = await hashPassword(password);
-    
-    if (cached.passwordHash === passwordHash) {
-      console.log('✅ [IndexedDB] Offline login successful');
-      return cached.user;
-    } else {
-      console.log('❌ [IndexedDB] Wrong password for offline login');
-      return null;
-    }
-  } catch (error) {
-    console.error('❌ [IndexedDB] Error verifying offline credentials:', error);
+    return cached.passwordHash === passwordHash ? cached.user : null;
+  } catch {
     return null;
   }
 }

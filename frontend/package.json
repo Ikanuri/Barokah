@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -H 0.0.0.0",
+    "dev": "node start-dev.js",
     "dev:https": "node server.js",
     "build": "next build",
     "start": "next start",
@@ -15,6 +15,7 @@
     "axios": "^1.6.5",
     "clsx": "^2.1.0",
     "date-fns": "^3.0.6",
+    "html2canvas": "^1.4.1",
     "html5-qrcode": "^2.3.8",
     "idb": "^8.0.3",
     "jspdf": "^2.5.1",

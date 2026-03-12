@@ -64,9 +64,8 @@ export default function CustomerTiers() {
         ? response.data 
         : (response.data?.data || [])
       setTiers(tiersData)
-    } catch (error) {
-      console.error('Failed to fetch tiers:', error)
-      setTiers([]) // Set empty array on error
+    } catch {
+      setTiers([])
     } finally {
       setLoading(false)
     }
@@ -125,8 +124,7 @@ export default function CustomerTiers() {
 
       setShowModal(false)
       fetchTiers()
-    } catch (error) {
-      console.error('Failed to save tier:', error)
+    } catch {
       alert('Gagal menyimpan tier')
     }
   }

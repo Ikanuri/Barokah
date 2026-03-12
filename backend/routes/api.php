@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\CustomerTierController;
 use App\Http\Controllers\Api\ProductPriceController;
+use App\Http\Controllers\Api\ExpenseController;
 
 // Public routes
 Route::get('/health', function () {
@@ -21,52 +22,6 @@ Route::get('/health', function () {
         'status' => 'ok',
         'message' => 'Backend is running',
         'timestamp' => now()->toISOString()
-    ]);
-});
-
-// Test endpoint (debug only - remove in production)
-Route::get('/test-transactions', function () {
-    $transactions = \App\Models\Transaction::with(['user', 'items'])
-        ->latest()
-        ->limit(5)
-        ->get()
-        ->map(function ($transaction) {
-            return [
-                'id' => $transaction->id,
-                'invoice_number' => $transaction->transaction_code,
-                'date' => $transaction->created_at->toISOString(),
-                'total' => (float) $transaction->total,
-                'cashier' => $transaction->user->name ?? 'Unknown',
-                'items_count' => $transaction->items->count(),
-            ];
-        });
-    
-    return response()->json([
-        'message' => 'Test successful - SQL fixed!',
-        'count' => $transactions->count(),
-        'data' => $transactions
-    ]);
-});
-
-Route::get('/test-transaction-detail/{id}', function ($id) {
-    $transaction = \App\Models\Transaction::with(['user', 'items.product', 'items.productUnit'])
-        ->findOrFail($id);
-    
-    return response()->json([
-        'data' => [
-            'id' => $transaction->id,
-            'invoice_number' => $transaction->transaction_code,
-            'items' => $transaction->items->map(function ($item) {
-                return [
-                    'id' => $item->id,
-                    'product_name' => $item->product ? $item->product->name : 'Unknown',
-                    'unit_name' => $item->productUnit ? $item->productUnit->name : null,
-                    'quantity' => (int) $item->quantity,
-                    'price' => (float) $item->unit_price,
-                    'subtotal' => (float) $item->subtotal,
-                ];
-            })->values()->all(),
-        ]
     ]);
 });
 
@@ -81,6 +36,15 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Dashboard
     Route::get('/dashboard/stats', [DashboardController::class, 'stats']);
+    Route::get('/dashboard/profit-loss', [DashboardController::class, 'profitLoss']);
+    Route::get('/dashboard/shift-recap', [DashboardController::class, 'shiftRecap']);
+
+    // Arus Kas (Expenses)
+    Route::get('/expenses', [ExpenseController::class, 'index']);
+    Route::post('/expenses', [ExpenseController::class, 'store']);
+    Route::put('/expenses/{id}', [ExpenseController::class, 'update']);
+    Route::delete('/expenses/{id}', [ExpenseController::class, 'destroy']);
+    Route::get('/expenses/summary', [ExpenseController::class, 'summary']);
 
     // Categories
     Route::apiResource('categories', CategoryController::class);
@@ -112,6 +76,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('transactions', TransactionController::class);
     Route::post('/transactions/{id}/cancel', [TransactionController::class, 'cancel']);
     Route::post('/transactions/{id}/payment', [TransactionController::class, 'makePayment']);
+    Route::post('/transactions/{id}/return-change', [TransactionController::class, 'returnChange']);
+    Route::post('/transactions/{id}/undo-return-change', [TransactionController::class, 'undoReturnChange']);
     Route::patch('/transactions/{id}/payment-method', [TransactionController::class, 'updatePaymentMethod']);
     Route::get('/statistics', [TransactionController::class, 'statistics']);
     Route::get('/statistics/cashiers', [TransactionController::class, 'cashierStatistics']);
@@ -120,6 +86,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/export/products', [ExportImportController::class, 'exportProducts']);
     Route::post('/import/products', [ExportImportController::class, 'importProducts']);
     Route::get('/export/transactions', [ExportImportController::class, 'exportTransactions']);
+    Route::post('/import/transactions', [ExportImportController::class, 'importTransactions']);
+    Route::get('/export/template/transactions', [ExportImportController::class, 'getTransactionTemplate']);
     Route::get('/export/template/products', [ExportImportController::class, 'getProductTemplate']);
     
     // Export/Import Users (Admin only)
@@ -133,14 +101,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/backup/telegram', [BackupController::class, 'sendBackupToTelegram']);
     
     // Export/Import Categories
-    Route::get('/export/categories', [BackupController::class, 'exportCategories']);
-    Route::post('/import/categories', [BackupController::class, 'importCategories']);
-    Route::get('/export/template/categories', [BackupController::class, 'getCategoryTemplate']);
-    
+    Route::get('/export/categories', [ExportImportController::class, 'exportCategories']);
+    Route::post('/import/categories', [ExportImportController::class, 'importCategories']);
+    Route::get('/export/template/categories', [ExportImportController::class, 'getCategoryTemplate']);
+
     // Export/Import Customers
-    Route::get('/export/customers', [BackupController::class, 'exportCustomers']);
-    Route::post('/import/customers', [BackupController::class, 'importCustomers']);
-    Route::get('/export/template/customers', [BackupController::class, 'getCustomerTemplate']);
+    Route::get('/export/customers', [ExportImportController::class, 'exportCustomers']);
+    Route::post('/import/customers', [ExportImportController::class, 'importCustomers']);
+    Route::get('/export/template/customers', [ExportImportController::class, 'getCustomerTemplate']);
 
     // Stores Management
     Route::get('/stores', [StoreController::class, 'index']);

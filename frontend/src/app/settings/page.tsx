@@ -57,7 +57,6 @@ export default function SettingsPage() {
         setShowShareDialog(true);
       }, 500);
     } catch (error: any) {
-      console.error('Backup error:', error);
       toast.error('❌ Backup gagal: ' + (error.response?.data?.message || error.message));
     } finally {
       setIsBackingUp(false);
@@ -103,7 +102,6 @@ export default function SettingsPage() {
         window.location.reload();
       }, 2000);
     } catch (error: any) {
-      console.error('Restore error:', error);
       toast.error('❌ Restore gagal: ' + (error.response?.data?.message || error.message));
     } finally {
       setIsRestoring(false);

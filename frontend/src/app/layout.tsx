@@ -62,89 +62,41 @@ export default function RootLayout({
           {`
             if ('serviceWorker' in navigator) {
               window.addEventListener('load', function() {
-                // Check if already controlled
-                if (navigator.serviceWorker.controller) {
-                  console.log('✅ [SW] Already controlled by:', navigator.serviceWorker.controller.scriptURL);
-                } else {
-                  console.log('⚠️ [SW] Not controlled yet - registering...');
-                }
-                
-                // Unregister old service workers first
                 navigator.serviceWorker.getRegistrations().then(function(registrations) {
                   const oldSWs = registrations.filter(function(reg) {
                     return reg.active && reg.active.scriptURL.includes('/sw.js');
                   });
-                  
                   if (oldSWs.length > 0) {
-                    console.log('🗑️ [SW] Unregistering', oldSWs.length, 'old SW(s)...');
                     Promise.all(oldSWs.map(function(reg) { return reg.unregister(); }))
                       .then(function() {
-                        console.log('✅ [SW] Old SWs unregistered, will reload in 1s...');
                         setTimeout(function() { window.location.reload(); }, 1000);
                       });
                     return;
                   }
-                  
-                  // Register custom service worker
                   registerCustomSW();
                 });
-                
                 function registerCustomSW() {
-                  navigator.serviceWorker.register('/sw-custom.js', { 
+                  navigator.serviceWorker.register('/sw-custom.js', {
                     scope: '/',
-                    updateViaCache: 'none' 
+                    updateViaCache: 'none'
                   }).then(
                     function(registration) {
-                      console.log('✅ [SW] Custom Service Worker registered:', registration.scope);
-                      
-                      // If not controlled yet, wait for activation
                       if (!navigator.serviceWorker.controller) {
-                        console.log('⏳ [SW] Waiting for activation...');
-                        
                         registration.addEventListener('updatefound', function() {
                           const newWorker = registration.installing;
-                          console.log('🔄 [SW] Installing new worker...');
-                          
                           newWorker.addEventListener('statechange', function() {
-                            console.log('📊 [SW] State:', newWorker.state);
-                            
-                            if (newWorker.state === 'activated') {
-                              console.log('✅ [SW] Activated! Reloading to activate control...');
-                              
-                              // Reload to let SW take control
-                              if (!navigator.serviceWorker.controller) {
-                                setTimeout(function() {
-                                  console.log('🔄 [SW] Reloading page for SW control...');
-                                  window.location.reload();
-                                }, 500);
-                              }
+                            if (newWorker.state === 'activated' && !navigator.serviceWorker.controller) {
+                              setTimeout(function() { window.location.reload(); }, 500);
                             }
                           });
                         });
                       }
-                      
-                      // Force update check
                       registration.update();
                     },
-                    function(err) {
-                      console.error('❌ [SW] Service Worker registration failed:', err);
-                    }
+                    function() {}
                   );
                 }
               });
-              
-              // Listen for controller change (SW taking control)
-              navigator.serviceWorker.addEventListener('controllerchange', function() {
-                console.log('🔄 [SW] Controller changed! SW now controlling page.');
-              });
-              
-              // Ready event
-              navigator.serviceWorker.ready.then(function(registration) {
-                console.log('✅ [SW] Service Worker ready:', registration.active.scriptURL);
-                console.log('📦 [SW] Controlled:', navigator.serviceWorker.controller ? 'YES' : 'NO');
-              });
-            } else {
-              console.error('❌ [SW] Service Worker not supported!');
             }
           `}
         </Script>

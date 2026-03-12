@@ -55,8 +55,7 @@ export default function CashierStatsPage() {
         },
       });
       setStats(response.data);
-    } catch (error: any) {
-      console.error('Error fetching cashier stats:', error);
+    } catch {
       toast.error('Gagal memuat statistik kasir');
     } finally {
       setLoading(false);

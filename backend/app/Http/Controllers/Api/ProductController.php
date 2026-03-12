@@ -10,45 +10,20 @@ use Illuminate\Support\Facades\Storage;
 
 class ProductController extends Controller
 {
+    private function clearProductCache(): void
+    {
+        $keys = \Cache::get('product_cache_keys', []);
+        foreach ($keys as $key) {
+            \Cache::forget($key);
+        }
+        \Cache::forget('product_cache_keys');
+    }
+
     public function index(Request $request)
     {
-        // Optimized query - select only needed columns untuk list view
         $query = Product::query();
-        
-        // DISABLE CACHE for now to ensure fresh data after updates
-        // TODO: Implement cache tagging or better invalidation strategy
         $perPage = $request->get('per_page', 15);
-        $useCache = false; // Temporarily disabled
-        
-        if ($useCache) {
-            // Cache selama 5 menit untuk bulk load
-            $cacheKey = 'products_all_' . md5($request->get('search', ''));
-            
-            $products = \Cache::remember($cacheKey, 300, function () use ($request) {
-                $query = Product::with(['category:id,name', 'units:id,product_id,unit_name,conversion_value,unit_type']);
-                
-                // Search
-                if ($request->has('search')) {
-                    $search = $request->search;
-                    $query->where(function ($q) use ($search) {
-                        $q->where('name', 'like', "%{$search}%")
-                            ->orWhere('sku', 'like', "%{$search}%")
-                            ->orWhere('barcode', 'like', "%{$search}%");
-                    });
-                }
-                
-                // Filter by category
-                if ($request->has('category_id')) {
-                    $query->where('category_id', $request->category_id);
-                }
-                
-                return $query->latest()->get();
-            });
-            
-            return response()->json(['data' => $products]);
-        }
 
-        // Normal pagination untuk request kecil
         $query->with(['category', 'units', 'prices' => function($q) {
             $q->active()->orderBy('priority', 'desc');
         }]);
@@ -154,12 +129,7 @@ class ProductController extends Controller
             }
         }
 
-        // Clear product cache setelah create
-        \Cache::flush(); // Clear all cache
-        // Also clear specific product cache tags if using tags
-        \Cache::forget('products_all_'); // Clear base cache
-        
-        \Log::info('Product created and cache cleared', ['product_id' => $product->id]);
+        $this->clearProductCache();
 
         return response()->json([
             'message' => 'Product created successfully',
@@ -179,14 +149,6 @@ class ProductController extends Controller
     {
         $product = Product::findOrFail($id);
         
-        // Log request untuk debugging
-        \Log::info('Product Update Request', [
-            'product_id' => $id,
-            'request_data' => $request->all(),
-            'has_base_price' => $request->has('base_price'),
-            'base_price_value' => $request->get('base_price')
-        ]);
-
         $validated = $request->validate([
             'name' => 'sometimes|required|string|max:255',
             'sku' => 'sometimes|required|string|unique:products,sku,' . $id,
@@ -233,25 +195,9 @@ class ProductController extends Controller
             $validated['image'] = $request->file('image')->store('products', 'public');
         }
 
-        // Filter hanya field product (exclude units)
-        $productData = collect($validated)->except('units')->toArray();
+        $productData = collect($validated)->except(['units', 'prices', 'variants'])->toArray();
         
-        // Log data yang akan di-update
-        \Log::info('Updating product with data', [
-            'product_id' => $id,
-            'update_data' => $productData,
-            'validated_keys' => array_keys($validated),
-            'product_data_keys' => array_keys($productData)
-        ]);
-        
-        // Update product
         $product->update($productData);
-        
-        // Log hasil update
-        \Log::info('Product after update', [
-            'product_id' => $id,
-            'updated_product' => $product->toArray()
-        ]);
 
         // Sync product units
         if ($request->has('units') && is_array($request->units)) {
@@ -341,19 +287,9 @@ class ProductController extends Controller
             $product->prices()->delete();
         }
 
-        // Clear product cache setelah update
-        \Cache::flush();
-        
-        \Log::info('Product update completed', ['product_id' => $id]);
+        $this->clearProductCache();
 
-        // Reload product completely from database dengan query fresh
         $updatedProduct = Product::with(['category', 'units', 'prices'])->findOrFail($id);
-        
-        \Log::info('Sending updated product response', [
-            'product_id' => $id,
-            'product_name' => $updatedProduct->name,
-            'updated_at' => $updatedProduct->updated_at
-        ]);
 
         return response()->json([
             'message' => 'Product updated successfully',
@@ -372,8 +308,7 @@ class ProductController extends Controller
 
         $product->delete();
 
-        // Clear product cache setelah delete
-        \Cache::flush();
+        $this->clearProductCache();
 
         return response()->json([
             'message' => 'Product deleted successfully',

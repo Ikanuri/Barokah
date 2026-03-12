@@ -47,13 +47,8 @@ export class BluetoothThermalPrinter {
         throw new Error('Device tidak memiliki GATT server');
       }
 
-      console.log('📱 Device selected:', this.device.name);
-
-      // Connect to GATT server
       const server = await this.device.gatt.connect();
-      console.log('✅ Connected to GATT server');
 
-      // Try multiple service UUIDs
       const serviceUUIDs = [
         '49535343-fe7d-4ae5-8fa9-9fafd205e455', // Most common for thermal printers
         '000018f0-0000-1000-8000-00805f9b34fb',
@@ -65,10 +60,9 @@ export class BluetoothThermalPrinter {
       for (const uuid of serviceUUIDs) {
         try {
           service = await server.getPrimaryService(uuid);
-          console.log(`✅ Got printer service: ${uuid}`);
           break;
-        } catch (e) {
-          console.log(`⏭️ Service ${uuid} not found, trying next...`);
+        } catch {
+          // try next UUID
         }
       }
 
@@ -76,23 +70,15 @@ export class BluetoothThermalPrinter {
         throw new Error('Tidak dapat menemukan service printer. Coba printer lain atau pastikan printer dalam mode pairing.');
       }
 
-      // Get all characteristics and find writable one
       const characteristics = await service.getCharacteristics();
-      console.log(`📝 Found ${characteristics.length} characteristics`);
-
-      // Find writable characteristic (with WRITE or WRITE_WITHOUT_RESPONSE property)
       for (const char of characteristics) {
         if (char.properties.write || char.properties.writeWithoutResponse) {
           this.characteristic = char;
-          console.log('✅ Got write characteristic:', char.uuid);
           break;
         }
       }
-
       if (!this.characteristic) {
-        // Fallback: use first characteristic
         this.characteristic = characteristics[0];
-        console.log('⚠️ Using first characteristic as fallback:', this.characteristic.uuid);
       }
 
       if (!this.characteristic) {
@@ -101,7 +87,6 @@ export class BluetoothThermalPrinter {
 
       return this.device.name || 'Bluetooth Printer';
     } catch (error: any) {
-      console.error('❌ Bluetooth connection error:', error);
       throw error;
     }
   }
@@ -112,7 +97,6 @@ export class BluetoothThermalPrinter {
   async disconnect() {
     if (this.device && this.device.gatt?.connected) {
       this.device.gatt.disconnect();
-      console.log('🔌 Disconnected from printer');
     }
   }
 
@@ -151,7 +135,6 @@ export class BluetoothThermalPrinter {
         // Small delay between chunks to prevent buffer overflow
         await new Promise(resolve => setTimeout(resolve, 10));
       } catch (error) {
-        console.error(`❌ Failed to write chunk at position ${i}:`, error);
         throw error;
       }
     }
@@ -330,8 +313,21 @@ export class BluetoothThermalPrinter {
       await this.printLine(this.formatRow('TOTAL:', this.formatCurrency(data.total), width));
 
       await this.setTextSize(1, 1);
-      await this.printLine(this.formatRow('Bayar:', this.formatCurrency(data.paid), width));
-      await this.printLine(this.formatRow('Kembali:', this.formatCurrency(data.change), width));
+      const paidNum = Number(data.paid) || 0;
+      const totalNum = Number(data.total) || 0;
+      const computedChange = paidNum - totalNum;
+      if (paidNum > 0) {
+        await this.printLine(this.formatRow('Bayar:', this.formatCurrency(paidNum), width));
+      }
+      if (computedChange > 0) {
+        await this.printLine(this.formatRow('Kembali:', this.formatCurrency(computedChange), width));
+      } else if (paidNum >= totalNum && paidNum > 0) {
+        await this.printLine(this.formatRow('Status:', 'LUNAS', width));
+      } else if (paidNum > 0) {
+        await this.printLine(this.formatRow('Kredit/Kurang:', this.formatCurrency(totalNum - paidNum), width));
+      } else {
+        await this.printLine(this.formatRow('Status:', 'Belum Bayar', width));
+      }
       await this.setBold(false);
 
       await this.printSeparator('=', width);
@@ -352,9 +348,7 @@ export class BluetoothThermalPrinter {
       await this.feed(3);
       await this.cut();
 
-      console.log('✅ Receipt printed successfully');
     } catch (error) {
-      console.error('❌ Print error:', error);
       throw error;
     }
   }
@@ -380,17 +374,17 @@ export class BluetoothThermalPrinter {
       await this.sendRaw(GS + 'k' + String.fromCharCode(73)); // CODE128
       await this.sendRaw(String.fromCharCode(text.length)); // Length
       await this.sendRaw(text); // Data
-    } catch (error) {
-      console.warn('Barcode print failed:', error);
-      // Continue even if barcode fails
+    } catch {
+      // continue even if barcode fails
     }
   }
 
   /**
-   * Format currency (Rupiah)
+   * Format currency (Rupiah) — regex-based untuk separator ribuan yang konsisten
+   * di semua perangkat tanpa bergantung pada locale browser
    */
   private formatCurrency(amount: number): string {
-    return 'Rp' + amount.toLocaleString('id-ID');
+    return 'Rp' + Math.round(amount).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
   }
 
   /**

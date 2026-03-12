@@ -155,17 +155,17 @@ export const useCartStore = create<CartState>((set, get) => ({
       priceToUse = get().getBestPriceForCustomer(product, quantity, customer) || undefined;
     }
     
-    // Calculate unit price
-    let basePrice = product.selling_price;
-    
+    // Calculate unit price (cast to number: API may return decimal strings e.g. "14000.00")
+    let basePrice = Number(product.selling_price) || 0;
+
     // Use alternative price if selected
     if (priceToUse) {
-      basePrice = priceToUse.price;
+      basePrice = Number(priceToUse.price) || 0;
     }
-    
+
     // Apply unit conversion
-    let unitPrice = unit 
-      ? (unit.selling_price || basePrice * unit.conversion_value)
+    let unitPrice = unit
+      ? (Number(unit.selling_price) || basePrice * unit.conversion_value)
       : basePrice;
     
     // Apply variant price adjustment

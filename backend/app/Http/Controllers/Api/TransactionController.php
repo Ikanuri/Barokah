@@ -74,6 +74,8 @@ class TransactionController extends Controller
                 ],
                 'items_count' => $transaction->items->count(),
                 'status' => $transaction->status,
+                'change_returned' => (bool) $transaction->change_returned,
+                'change_amount' => (float) $transaction->change_amount,
             ];
         });
 
@@ -265,7 +267,9 @@ class TransactionController extends Controller
                 ],
                 'items_count' => $transaction->items->count(),
                 'status' => $transaction->status,
-                'notes' => $transaction->notes, // ✅ Add transaction notes
+                'notes' => $transaction->notes,
+                'change_returned' => (bool) $transaction->change_returned,
+                'change_amount' => (float) $transaction->change_amount,
                 'items' => $transaction->items->map(function ($item) {
                     // Get unit name: prefer productUnit, fallback to product's base_unit
                     $unitName = null;
@@ -334,6 +338,7 @@ class TransactionController extends Controller
             'items.*.product_unit_id' => 'nullable|exists:product_units,id',
             'items.*.variant_name' => 'nullable|string',
             'items.*.quantity' => 'required|integer|min:1',
+            'items.*.notes' => 'nullable|string',
             'customer_id' => 'nullable|exists:customers,id',
             'paid_amount' => 'nullable|numeric|min:0',
             'notes' => 'nullable|string',
@@ -341,78 +346,10 @@ class TransactionController extends Controller
         ]);
 
         return DB::transaction(function () use ($transaction, $validated, $request) {
-            $isPaid = $transaction->payment_status === 'paid';
             $ignoreStock = $validated['ignore_stock'] ?? false;
-            
-            if ($isPaid) {
-                // For paid transactions: ADD items (don't replace)
-                $subtotal = $transaction->subtotal;
-                $transactionItems = [];
 
-                foreach ($validated['items'] as $item) {
-                    $product = Product::findOrFail($item['product_id']);
-
-                    if (isset($item['product_unit_id']) && $item['product_unit_id']) {
-                        $productUnit = $product->units()->findOrFail($item['product_unit_id']);
-                        $unitPrice = $productUnit->getEffectiveSellingPrice();
-                        $baseQuantity = $productUnit->toBaseQuantity($item['quantity']);
-                    } else {
-                        $unitPrice = (float) $product->selling_price;
-                        $baseQuantity = $item['quantity'];
-                    }
-
-                    if (!$ignoreStock && $product->stock_quantity < $baseQuantity) {
-                        throw new \Exception("Insufficient stock for product: {$product->name}");
-                    }
-
-                    $itemSubtotal = $unitPrice * $item['quantity'];
-                    $subtotal += $itemSubtotal;
-
-                    $transactionItems[] = [
-                        'product' => $product,
-                        'product_unit_id' => $item['product_unit_id'] ?? null,
-                        'variant_name' => $item['variant_name'] ?? null,
-                        'quantity' => $item['quantity'],
-                        'base_quantity' => $baseQuantity,
-                        'unit_price' => $unitPrice,
-                        'subtotal' => $itemSubtotal,
-                    ];
-                }
-
-                $total = $subtotal;
-
-                // Update transaction total (add to existing)
-                $transaction->update([
-                    'subtotal' => $subtotal,
-                    'total' => $total,
-                ]);
-
-                // Create new items (don't delete old ones) and reduce stock
-                foreach ($transactionItems as $item) {
-                    TransactionItem::create([
-                        'transaction_id' => $transaction->id,
-                        'product_id' => $item['product']->id,
-                        'product_unit_id' => $item['product_unit_id'],
-                        'variant_name' => $item['variant_name'],
-                        'quantity' => $item['quantity'],
-                        'base_quantity' => $item['base_quantity'],
-                        'unit_price' => $item['unit_price'],
-                        'subtotal' => $item['subtotal'],
-                    ]);
-
-                    $item['product']->decrement('stock_quantity', $item['base_quantity']);
-                }
-
-                // Update customer if applicable
-                if ($transaction->customer_id) {
-                    $customer = $transaction->customer;
-                    $addedAmount = $total - $transaction->getOriginal('total');
-                    $customer->increment('total_purchases', $addedAmount);
-                }
-
-            } else {
-                // For unpaid/partial: REPLACE items
-                // Build a map of old items by product_id + product_unit_id for comparison
+            // REPLACE items (always — works for paid, partial, and unpaid transactions)
+            // Build a map of old items by product_id + product_unit_id for comparison
                 $oldItemsMap = [];
                 foreach ($transaction->items as $oldItem) {
                     $key = $oldItem->product_id . '_' . ($oldItem->product_unit_id ?? '0');
@@ -457,6 +394,7 @@ class TransactionController extends Controller
                         'base_quantity' => $baseQuantity,
                         'unit_price' => $unitPrice,
                         'subtotal' => $itemSubtotal,
+                        'notes' => $item['notes'] ?? null,
                     ];
 
                     // Track new items for stock adjustment
@@ -541,6 +479,7 @@ class TransactionController extends Controller
                         'base_quantity' => $item['base_quantity'],
                         'unit_price' => $item['unit_price'],
                         'subtotal' => $item['subtotal'],
+                        'notes' => $item['notes'],
                     ]);
                     
                     // Stock adjustment already done in differential loop above
@@ -562,7 +501,6 @@ class TransactionController extends Controller
                     
                     $customer->increment('outstanding_balance', $difference);
                 }
-            }
 
             return response()->json([
                 'message' => 'Transaction updated successfully',
@@ -615,6 +553,70 @@ class TransactionController extends Controller
             'message' => 'Payment recorded successfully',
             'data' => $transaction->fresh(),
         ]);
+    }
+
+    // Mark change as returned — reduces paid_total to exact total, keeps change_amount for undo
+    public function returnChange($id)
+    {
+        try {
+            $transaction = Transaction::findOrFail($id);
+
+            $overpaid = $transaction->paid_total - $transaction->total;
+            if ($overpaid <= 0) {
+                return response()->json([
+                    'message' => 'Tidak ada kembalian yang perlu dikembalikan',
+                ], 422);
+            }
+
+            $transaction->update([
+                'paid_total'      => $transaction->total,
+                'payment_status'  => 'paid',
+                'change_amount'   => $overpaid, // keep for undo reference
+                'change_returned' => true,
+            ]);
+
+            return response()->json([
+                'message' => 'Kembalian dicatat sebagai sudah dikembalikan',
+                'data'    => $transaction->fresh(['customer', 'items.product', 'items.productUnit']),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Gagal mencatat kembalian',
+                'error'   => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    // Undo return-change — restores paid_total to original (total + change_amount)
+    public function undoReturnChange($id)
+    {
+        try {
+            $transaction = Transaction::findOrFail($id);
+
+            if (!$transaction->change_returned) {
+                return response()->json([
+                    'message' => 'Kembalian belum dicatat sebagai dikembalikan',
+                ], 422);
+            }
+
+            $originalPaidTotal = $transaction->total + $transaction->change_amount;
+
+            $transaction->update([
+                'paid_total'      => $originalPaidTotal,
+                'payment_status'  => 'paid',
+                'change_returned' => false,
+            ]);
+
+            return response()->json([
+                'message' => 'Pencatatan kembalian berhasil dibatalkan',
+                'data'    => $transaction->fresh(['customer', 'items.product', 'items.productUnit']),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Gagal membatalkan pencatatan kembalian',
+                'error'   => $e->getMessage(),
+            ], 500);
+        }
     }
 
     // Update payment method for unpaid/partial transactions

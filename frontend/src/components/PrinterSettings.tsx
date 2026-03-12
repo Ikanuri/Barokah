@@ -44,8 +44,8 @@ export function usePrinterConfig() {
     if (saved) {
       try {
         setConfig({ ...defaultConfig, ...JSON.parse(saved) });
-      } catch (error) {
-        console.error('Failed to load printer config:', error);
+      } catch {
+        // use default config
       }
     }
   }, []);

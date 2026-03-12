@@ -1,6 +1,6 @@
 // Custom Service Worker for POS App - Aggressive Offline Caching
 
-const CACHE_VERSION = 'pos-v1';
+const CACHE_VERSION = 'pos-v2';
 const CACHE_NAME = `pos-cache-${CACHE_VERSION}`;
 
 // Files to cache immediately on install
@@ -81,51 +81,35 @@ self.addEventListener('fetch', (event) => {
   if (url.protocol === 'chrome-extension:') {
     return;
   }
-  
-  // Strategy: Cache First for same-origin, Network First for API
+
+  // Skip Next.js internal chunks — URLs change on every dev restart
+  if (url.pathname.startsWith('/_next/')) {
+    return; // Let browser handle normally (no SW interception)
+  }
+
+  // Strategy: Network First for same-origin pages, Network First for API
   if (url.origin === location.origin) {
-    // Same-origin requests - Cache First
+    // Same-origin requests - Network First (fallback to cache)
     event.respondWith(
-      caches.match(request).then((cachedResponse) => {
-        if (cachedResponse) {
-          console.log('[SW] Serving from cache:', url.pathname);
-          
-          // Return cached response, but update cache in background
-          event.waitUntil(
-            fetch(request).then((networkResponse) => {
-              if (networkResponse && networkResponse.status === 200) {
-                caches.open(CACHE_NAME).then((cache) => {
-                  cache.put(request, networkResponse.clone());
-                });
-              }
-            }).catch(() => {
-              // Network failed, but we already have cache
-            })
-          );
-          
-          return cachedResponse;
+      fetch(request).then((networkResponse) => {
+        // Cache successful responses for offline fallback
+        if (networkResponse && networkResponse.status === 200) {
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(request, responseToCache);
+          });
         }
-        
-        // Not in cache, try network
-        console.log('[SW] Fetching from network:', url.pathname);
-        return fetch(request).then((networkResponse) => {
-          // Cache successful responses
-          if (networkResponse && networkResponse.status === 200) {
-            const responseToCache = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(request, responseToCache);
-            });
+        return networkResponse;
+      }).catch(() => {
+        // Network failed — try cache
+        return caches.match(request).then((cachedResponse) => {
+          if (cachedResponse) {
+            return cachedResponse;
           }
-          return networkResponse;
-        }).catch((err) => {
-          console.error('[SW] Fetch failed:', url.pathname, err);
-          
-          // Return offline page for navigation requests
+          // Last resort: offline page for navigation
           if (request.mode === 'navigate') {
             return caches.match('/offline.html');
           }
-          
-          throw err;
         });
       })
     );

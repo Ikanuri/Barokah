@@ -48,6 +48,8 @@ interface Transaction {
   status?: string;
   items?: TransactionItem[];
   notes?: string; // ✅ Add transaction notes field
+  change_returned?: boolean;
+  change_amount?: number;
 }
 
 interface ProductUnit {
@@ -104,13 +106,12 @@ export default function EditTransactionModal({ isOpen, onClose, transaction, onU
   // State for print preview
   const [showPrintPreview, setShowPrintPreview] = useState(false);
 
-  const canEditPayment = transaction.payment_status !== 'paid';
-
   useEffect(() => {
     if (isOpen) {
       setItems(transaction.items || []);
       setPaymentMethod(transaction.payment_method || 'cash');
-      setPaymentAmount(transaction.payment_amount || 0);
+      // Always start empty: effectiveChange will show current kekurangan live.
+      setPaymentAmount('');
       setHasChanges(false);
       fetchProducts();
     }
@@ -125,11 +126,8 @@ export default function EditTransactionModal({ isOpen, onClose, transaction, onU
         }
       });
       const productsData = response.data.data || [];
-      console.log('🔍 Products fetched:', productsData.length);
-      console.log('🔍 First product units:', productsData[0]?.units);
       setProducts(productsData);
-    } catch (error) {
-      console.error('Error fetching products:', error);
+    } catch {
       toast.error('Gagal memuat produk');
     }
   };
@@ -200,16 +198,10 @@ export default function EditTransactionModal({ isOpen, onClose, transaction, onU
 
     setIsLoading(true);
     try {
-      // Check if items changed
       const itemsChanged = JSON.stringify(items) !== JSON.stringify(transaction.items || []);
-      
-      // Check if payment changed
-      const paymentChanged = canEditPayment && (
-        paymentMethod !== transaction.payment_method || 
-        paymentAmount !== transaction.payment_amount
-      );
+      // Send payment if canEditPayment and user entered a positive amount
+      const paymentChanged = canEditPayment && paymentAmountNum > 0;
 
-      // Update items if changed
       if (itemsChanged) {
         const itemsPayload = {
           items: items.map(item => ({
@@ -217,6 +209,7 @@ export default function EditTransactionModal({ isOpen, onClose, transaction, onU
             product_unit_id: item.product_unit_id,
             quantity: item.quantity,
             price: item.price,
+            notes: item.notes || null,
           })),
           ignore_stock: ignoreStock,
         };
@@ -224,7 +217,6 @@ export default function EditTransactionModal({ isOpen, onClose, transaction, onU
         await api.put(`/transactions/${transaction.id}`, itemsPayload);
       }
 
-      // Update payment if changed and transaction is not paid
       if (paymentChanged) {
         const paymentPayload = {
           amount: typeof paymentAmount === 'string' ? parseFloat(paymentAmount) || 0 : paymentAmount,
@@ -237,19 +229,44 @@ export default function EditTransactionModal({ isOpen, onClose, transaction, onU
       toast.success('Transaksi berhasil diperbarui');
       setHasChanges(false);
       
-      // 🔥 Broadcast ke semua tabs untuk real-time sync
       broadcastSync('transaction_updated', { transactionId: transaction.id });
-      console.log('📢 [EDIT MODAL] Broadcasted transaction_updated event');
-      
-      // 🗑️ Clear transactions cache (IndexedDB)
       await invalidateTransactionsCache();
-      console.log('🗑️ [EDIT MODAL] Cleared transactions cache');
-      
       if (onUpdate) onUpdate();
       onClose();
     } catch (error: any) {
-      console.error('Error updating transaction:', error);
       toast.error(error.response?.data?.message || 'Gagal memperbarui transaksi');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleReturnChange = async () => {
+    try {
+      setIsLoading(true);
+      await api.post(`/transactions/${transaction.id}/return-change`);
+      toast.success('Kembalian dicatat sebagai sudah dikembalikan');
+      invalidateTransactionsCache();
+      broadcastSync('transaction_updated');
+      onUpdate?.();
+      onClose();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Gagal mencatat kembalian');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleUndoReturnChange = async () => {
+    try {
+      setIsLoading(true);
+      await api.post(`/transactions/${transaction.id}/undo-return-change`);
+      toast.success('Pencatatan kembalian dibatalkan');
+      invalidateTransactionsCache();
+      broadcastSync('transaction_updated');
+      onUpdate?.();
+      onClose();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Gagal membatalkan pencatatan kembalian');
     } finally {
       setIsLoading(false);
     }
@@ -258,13 +275,23 @@ export default function EditTransactionModal({ isOpen, onClose, transaction, onU
   const handleReset = () => {
     setItems(transaction.items || []);
     setPaymentMethod(transaction.payment_method || 'cash');
-    setPaymentAmount(transaction.payment_amount || 0);
+    setPaymentAmount('');
     setHasChanges(false);
   };
 
   const total = items.reduce((sum, item) => sum + item.subtotal, 0);
   const paymentAmountNum = typeof paymentAmount === 'string' ? parseFloat(paymentAmount) || 0 : paymentAmount;
-  const change = paymentAmountNum - total;
+  // paidTotalBase: cumulative amount already paid before this session
+  const paidTotalBase = Number(transaction.paid_total ?? transaction.payment_amount ?? 0);
+  // remaining: still owed
+  const remaining = Math.max(0, total - paidTotalBase);
+  // overpaid: use change_amount from backend (paid_total is capped at total by makePayment,
+  // so paidTotalBase - total would always be 0 even when there is real kembalian)
+  const overpaid = Number(transaction.change ?? transaction.change_amount ?? 0);
+  // effectiveChange: >0 kembalian, <0 kekurangan, 0 lunas
+  const effectiveChange = paidTotalBase + paymentAmountNum - total;
+  // canEditPayment: show payment input only when something is still owed
+  const canEditPayment = remaining > 0;
 
   const filteredProducts = products.filter(product => {
     const q = searchQuery.trim().toLowerCase();
@@ -462,10 +489,8 @@ export default function EditTransactionModal({ isOpen, onClose, transaction, onU
                   <div
                     key={product.id}
                     onClick={() => {
-                      console.log('🎯 Product selected:', product.name);
-                      console.log('🎯 Product units:', product.units);
                       setSelectedProduct(product);
-                      setSelectedUnit(null); // Reset unit selection
+                      setSelectedUnit(null);
                       setSelectedPrice(product.selling_price);
                       setSearchQuery('');
                     }}
@@ -522,14 +547,11 @@ export default function EditTransactionModal({ isOpen, onClose, transaction, onU
                       value={selectedUnit?.id || ''}
                       onChange={(e) => {
                         const unitId = parseInt(e.target.value);
-                        console.log('🔄 Unit changed to:', unitId);
                         if (unitId) {
                           const unit = selectedProduct.units?.find(u => u.id === unitId);
-                          console.log('📌 Selected unit:', unit);
                           setSelectedUnit(unit || null);
                           setSelectedPrice(unit?.selling_price || selectedProduct.selling_price);
                         } else {
-                          console.log('📌 Reset to base unit');
                           setSelectedUnit(null);
                           setSelectedPrice(selectedProduct.selling_price);
                         }
@@ -684,6 +706,62 @@ export default function EditTransactionModal({ isOpen, onClose, transaction, onU
                 </div>
               )}
 
+              {!canEditPayment && (
+                <>
+                  <div className="flex justify-between text-sm md:text-base text-gray-700 dark:text-gray-300">
+                    {transaction.change_returned ? (
+                      <>
+                        <span>Status:</span>
+                        <span className="font-semibold text-green-600 dark:text-green-400">LUNAS ✓</span>
+                      </>
+                    ) : overpaid > 0 ? (
+                      <>
+                        <span>Kembalian:</span>
+                        <span className="font-semibold text-green-600 dark:text-green-400">{formatCurrency(overpaid)}</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Status:</span>
+                        <span className="font-semibold text-green-600 dark:text-green-400">LUNAS ✓</span>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Kembalian sudah dikembalikan — tampilkan info + tombol undo */}
+                  {transaction.change_returned && (
+                    <div className="flex items-center justify-between gap-2 p-2 bg-amber-50 dark:bg-amber-900/20 rounded border border-amber-200 dark:border-amber-800">
+                      <span className="text-xs text-amber-700 dark:text-amber-400">
+                        ↩ Kembalian {formatCurrency(Number(transaction.change_amount) || 0)} sudah dikembalikan
+                      </span>
+                      <button
+                        onClick={handleUndoReturnChange}
+                        disabled={isLoading || hasChanges}
+                        className="text-xs text-gray-500 dark:text-gray-400 underline hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-50"
+                      >
+                        Batalkan
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Belum dikembalikan — tampilkan tombol "sudah dikembalikan" */}
+                  {!transaction.change_returned && overpaid > 0 && (
+                    <Button
+                      variant="outline"
+                      onClick={handleReturnChange}
+                      disabled={isLoading || hasChanges}
+                      className="w-full text-xs text-amber-700 border-amber-400 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-900/20"
+                    >
+                      ✓ Kembalian {formatCurrency(overpaid)} sudah dikembalikan ke pelanggan
+                    </Button>
+                  )}
+                  {!transaction.change_returned && overpaid > 0 && hasChanges && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
+                      Simpan perubahan item terlebih dahulu sebelum mencatat kembalian
+                    </p>
+                  )}
+                </>
+              )}
+
               {canEditPayment && (
                 <>
                   <div>
@@ -691,10 +769,16 @@ export default function EditTransactionModal({ isOpen, onClose, transaction, onU
                       Dibayar
                     </label>
                     <Input
-                      type="number"
-                      value={paymentAmount}
+                      type="text"
+                      inputMode="numeric"
+                      value={(() => {
+                        const num = parseFloat(String(paymentAmount));
+                        if (isNaN(num) || paymentAmount === '') return '';
+                        return Math.round(num).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+                      })()}
                       onChange={(e) => {
-                        setPaymentAmount(e.target.value === '' ? '' : e.target.value);
+                        const raw = e.target.value.replace(/\./g, '');
+                        setPaymentAmount(raw === '' ? '' : raw);
                         setHasChanges(true);
                       }}
                       className="text-right text-sm md:text-base min-h-[44px]"
@@ -702,10 +786,22 @@ export default function EditTransactionModal({ isOpen, onClose, transaction, onU
                   </div>
 
                   <div className="flex justify-between text-sm md:text-base text-gray-700 dark:text-gray-300">
-                    <span>{change >= 0 ? 'Kembalian:' : 'Kekurangan:'}</span>
-                    <span className={`font-semibold ${change >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                      {formatCurrency(Math.abs(change))}
-                    </span>
+                    {effectiveChange > 0 ? (
+                      <>
+                        <span>Kembalian:</span>
+                        <span className="font-semibold text-green-600 dark:text-green-400">{formatCurrency(effectiveChange)}</span>
+                      </>
+                    ) : effectiveChange === 0 && paymentAmountNum > 0 ? (
+                      <>
+                        <span>Status:</span>
+                        <span className="font-semibold text-green-600 dark:text-green-400">LUNAS ✓</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Kekurangan:</span>
+                        <span className="font-semibold text-red-600 dark:text-red-400">{formatCurrency(Math.abs(effectiveChange))}</span>
+                      </>
+                    )}
                   </div>
                 </>
               )}
@@ -771,8 +867,14 @@ export default function EditTransactionModal({ isOpen, onClose, transaction, onU
             discount: 0,
             tax: 0,
             total: total,
-            paid_amount: typeof paymentAmount === 'string' ? parseFloat(paymentAmount) || 0 : paymentAmount,
-            change: change,
+            paid_amount: (() => {
+              const changeAmt = Number(transaction.change_amount ?? transaction.change ?? 0);
+              // paid_total is capped at total by makePayment; reconstruct original paid from change_amount
+              return changeAmt > 0
+                ? Number(transaction.total) + changeAmt
+                : (transaction.paid_total ?? transaction.payment_amount ?? 0);
+            })(),
+            change: transaction.change ?? 0,
             payment_method: paymentMethod,
             payment_status: transaction.payment_status || 'paid',
             customer: transaction.customer ? {

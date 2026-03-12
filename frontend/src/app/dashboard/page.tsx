@@ -66,12 +66,9 @@ export default function DashboardPage() {
   const fetchStats = async () => {
     try {
       const response = await api.get('/dashboard/stats');
-      console.log('Dashboard stats response:', response.data);
       setStats(response.data.data || response.data);
       setLoading(false);
     } catch (error: any) {
-      console.error('Error fetching dashboard stats:', error);
-      console.error('Error response:', error.response?.data);
       toast.error('Gagal memuat statistik dashboard: ' + (error.response?.data?.message || error.message));
       setLoading(false);
     }
@@ -115,13 +112,13 @@ export default function DashboardPage() {
           <Card>
             <CardContent className="p-5">
               <div className="flex items-center justify-between">
-                <div>
+                <div className="min-w-0 flex-1">
                   <p className="text-sm text-[var(--text-secondary)] font-medium">Transaksi Hari Ini</p>
-                  <p className="text-3xl font-bold mt-2 text-[var(--text-primary)]">
+                  <p className="text-2xl font-bold mt-2 text-[var(--text-primary)]">
                     {stats.today_transactions || 0}
                   </p>
                 </div>
-                <div className="p-3 bg-[var(--ios-blue)]/15 rounded-2xl">
+                <div className="p-3 bg-[var(--ios-blue)]/15 rounded-2xl flex-shrink-0 ml-3">
                   <ShoppingCart className="text-[var(--ios-blue)]" size={24} />
                 </div>
               </div>
@@ -131,13 +128,13 @@ export default function DashboardPage() {
           <Card>
             <CardContent className="p-5">
               <div className="flex items-center justify-between">
-                <div>
+                <div className="min-w-0 flex-1">
                   <p className="text-sm text-[var(--text-secondary)] font-medium">Pendapatan Hari Ini</p>
-                  <p className="text-2xl font-bold mt-2 text-[var(--text-primary)]">
+                  <p className="text-lg font-bold mt-2 text-[var(--text-primary)] leading-tight">
                     {formatCurrency(stats.today_revenue || 0)}
                   </p>
                 </div>
-                <div className="p-3 bg-[var(--ios-green)]/15 rounded-2xl">
+                <div className="p-3 bg-[var(--ios-green)]/15 rounded-2xl flex-shrink-0 ml-3">
                   <TrendingUp className="text-[var(--ios-green)]" size={24} />
                 </div>
               </div>
@@ -147,13 +144,13 @@ export default function DashboardPage() {
           <Card>
             <CardContent className="p-5">
               <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-[var(--text-secondary)] font-medium">💰 Laba Hari Ini</p>
-                  <p className="text-2xl font-bold mt-2 text-[var(--ios-orange)]">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-[var(--text-secondary)] font-medium">Laba Hari Ini</p>
+                  <p className="text-lg font-bold mt-2 text-[var(--ios-orange)] leading-tight">
                     {formatCurrency(stats.today_profit || 0)}
                   </p>
                 </div>
-                <div className="p-3 bg-[var(--ios-orange)]/15 rounded-2xl">
+                <div className="p-3 bg-[var(--ios-orange)]/15 rounded-2xl flex-shrink-0 ml-3">
                   <TrendingUp className="text-[var(--ios-orange)]" size={24} />
                 </div>
               </div>
@@ -163,13 +160,13 @@ export default function DashboardPage() {
           <Card>
             <CardContent className="p-5">
               <div className="flex items-center justify-between">
-                <div>
+                <div className="min-w-0 flex-1">
                   <p className="text-sm text-[var(--text-secondary)] font-medium">Total Produk</p>
-                  <p className="text-3xl font-bold mt-2 text-[var(--text-primary)]">
+                  <p className="text-2xl font-bold mt-2 text-[var(--text-primary)]">
                     {stats.total_products || 0}
                   </p>
                 </div>
-                <div className="p-3 bg-[var(--ios-purple)]/15 rounded-2xl">
+                <div className="p-3 bg-[var(--ios-purple)]/15 rounded-2xl flex-shrink-0 ml-3">
                   <Package className="text-[var(--ios-purple)]" size={24} />
                 </div>
               </div>
@@ -179,13 +176,13 @@ export default function DashboardPage() {
           <Card>
             <CardContent className="p-5">
               <div className="flex items-center justify-between">
-                <div>
+                <div className="min-w-0 flex-1">
                   <p className="text-sm text-[var(--text-secondary)] font-medium">Stok Menipis</p>
-                  <p className="text-3xl font-bold mt-2 text-[var(--text-primary)]">
+                  <p className="text-2xl font-bold mt-2 text-[var(--ios-red)]">
                     {stats.low_stock_products || 0}
                   </p>
                 </div>
-                <div className="p-3 bg-[var(--ios-red)]/15 rounded-2xl">
+                <div className="p-3 bg-[var(--ios-red)]/15 rounded-2xl flex-shrink-0 ml-3">
                   <AlertTriangle className="text-[var(--ios-red)]" size={24} />
                 </div>
               </div>
@@ -308,36 +305,36 @@ export default function DashboardPage() {
             {/* Weekly */}
             <Card>
               <CardHeader>
-                <h3 className="text-lg font-bold text-purple-600 dark:text-purple-400">📊 Minggu Ini</h3>
+                <h3 className="text-lg font-bold text-[var(--ios-purple)]">Minggu Ini</h3>
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
                   {stats.top_gainers?.weekly && stats.top_gainers.weekly.length > 0 ? (
                     stats.top_gainers.weekly.map((product, index) => (
-                      <div key={product.id} className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-700">
+                      <div key={product.id} className="p-3 bg-[var(--ios-purple)]/10 rounded-xl border border-[var(--ios-purple)]/20">
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
                             <div className="flex items-center gap-2">
-                              <span className="text-lg font-bold text-purple-600 dark:text-purple-400">#{index + 1}</span>
-                              <span className="font-medium text-sm dark:text-gray-200">{product.name}</span>
+                              <span className="text-lg font-bold text-[var(--ios-purple)]">#{index + 1}</span>
+                              <span className="font-medium text-sm text-[var(--text-primary)]">{product.name}</span>
                             </div>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">SKU: {product.sku}</p>
+                            <p className="text-xs text-[var(--text-secondary)] mt-1">SKU: {product.sku}</p>
                           </div>
                         </div>
                         <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
                           <div>
-                            <p className="text-gray-600 dark:text-gray-400">Profit</p>
-                            <p className="font-bold text-green-600 dark:text-green-400">{formatCurrency(product.profit)}</p>
+                            <p className="text-[var(--text-secondary)]">Profit</p>
+                            <p className="font-bold text-[var(--ios-green)]">{formatCurrency(product.profit)}</p>
                           </div>
                           <div>
-                            <p className="text-gray-600 dark:text-gray-400">Terjual</p>
-                            <p className="font-semibold dark:text-gray-200">{product.total_sold} pcs</p>
+                            <p className="text-[var(--text-secondary)]">Terjual</p>
+                            <p className="font-semibold text-[var(--text-primary)]">{product.total_sold} pcs</p>
                           </div>
                         </div>
                       </div>
                     ))
                   ) : (
-                    <div className="text-center text-gray-500 dark:text-gray-400 py-8 text-sm">
+                    <div className="text-center text-[var(--text-tertiary)] py-8 text-sm">
                       Belum ada data minggu ini
                     </div>
                   )}
@@ -348,36 +345,36 @@ export default function DashboardPage() {
             {/* Monthly */}
             <Card>
               <CardHeader>
-                <h3 className="text-lg font-bold text-orange-600 dark:text-orange-400">📈 Bulan Ini</h3>
+                <h3 className="text-lg font-bold text-[var(--ios-orange)]">Bulan Ini</h3>
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
                   {stats.top_gainers?.monthly && stats.top_gainers.monthly.length > 0 ? (
                     stats.top_gainers.monthly.map((product, index) => (
-                      <div key={product.id} className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-700">
+                      <div key={product.id} className="p-3 bg-[var(--ios-orange)]/10 rounded-xl border border-[var(--ios-orange)]/20">
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
                             <div className="flex items-center gap-2">
-                              <span className="text-lg font-bold text-orange-600 dark:text-orange-400">#{index + 1}</span>
-                              <span className="font-medium text-sm dark:text-gray-200">{product.name}</span>
+                              <span className="text-lg font-bold text-[var(--ios-orange)]">#{index + 1}</span>
+                              <span className="font-medium text-sm text-[var(--text-primary)]">{product.name}</span>
                             </div>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">SKU: {product.sku}</p>
+                            <p className="text-xs text-[var(--text-secondary)] mt-1">SKU: {product.sku}</p>
                           </div>
                         </div>
                         <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
                           <div>
-                            <p className="text-gray-600 dark:text-gray-400">Profit</p>
-                            <p className="font-bold text-green-600 dark:text-green-400">{formatCurrency(product.profit)}</p>
+                            <p className="text-[var(--text-secondary)]">Profit</p>
+                            <p className="font-bold text-[var(--ios-green)]">{formatCurrency(product.profit)}</p>
                           </div>
                           <div>
-                            <p className="text-gray-600 dark:text-gray-400">Terjual</p>
-                            <p className="font-semibold dark:text-gray-200">{product.total_sold} pcs</p>
+                            <p className="text-[var(--text-secondary)]">Terjual</p>
+                            <p className="font-semibold text-[var(--text-primary)]">{product.total_sold} pcs</p>
                           </div>
                         </div>
                       </div>
                     ))
                   ) : (
-                    <div className="text-center text-gray-500 dark:text-gray-400 py-8 text-sm">
+                    <div className="text-center text-[var(--text-tertiary)] py-8 text-sm">
                       Belum ada data bulan ini
                     </div>
                   )}
