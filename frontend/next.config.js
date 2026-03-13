@@ -120,6 +120,7 @@ const withPWA = require('next-pwa')({
 const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
+  transpilePackages: ['html2canvas'],
   
   images: {
     unoptimized: process.env.NODE_ENV === 'development',

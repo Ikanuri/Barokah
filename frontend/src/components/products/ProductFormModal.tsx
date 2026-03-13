@@ -160,7 +160,7 @@ export default function ProductFormModal({ isOpen, editingProduct, onClose, onSa
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="w-full max-w-3xl my-8">
         <Card className="w-full">
           <CardHeader>

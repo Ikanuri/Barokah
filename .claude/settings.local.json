@@ -17,7 +17,14 @@
       "Bash(php -l \"c:\\\\pos-app\\\\backend\\\\app\\\\Http\\\\Controllers\\\\Api\\\\TransactionController.php\")",
       "Bash(php -l \"c:/pos-app/backend/app/Models/Transaction.php\")",
       "Bash(php artisan:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(sed -n '285,292p' c:/pos-app/frontend/src/app/customers/page.tsx)",
+      "Bash(sed -n '253,258p' c:/pos-app/frontend/src/components/ExportImportButtons.tsx)",
+      "Bash(sed -n '16,22p' c:/pos-app/frontend/src/components/pos/EditProductModal.tsx)",
+      "Bash(sed -n '16,22p' c:/pos-app/frontend/src/components/pos/VariantModal.tsx)",
+      "Bash(sed -n '109,115p' c:/pos-app/frontend/src/components/PrinterSettings.tsx)"
     ]
   }
 }

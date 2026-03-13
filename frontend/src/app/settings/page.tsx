@@ -267,7 +267,7 @@ export default function SettingsPage() {
 
         {/* Share Backup Dialog */}
         {showShareDialog && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={(e) => { if (e.target === e.currentTarget) setShowShareDialog(false); }}>
             <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full">
               <h3 className="text-lg font-bold mb-4 dark:text-gray-100">✅ Backup Berhasil</h3>
               
@@ -322,7 +322,7 @@ export default function SettingsPage() {
 
         {/* Restore Dialog */}
         {showRestoreDialog && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={(e) => { if (e.target === e.currentTarget) setShowRestoreDialog(false); }}>
             <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full">
               <h3 className="text-lg font-bold mb-4 dark:text-gray-100">Restore dari Backup</h3>
               

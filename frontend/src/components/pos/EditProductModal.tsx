@@ -15,7 +15,7 @@ export default function EditProductModal({ show, product, onChange, onSave, onCl
   if (!show || !product) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <Card className="w-full max-w-2xl my-8">
         <CardHeader>
           <div className="flex items-center justify-between">

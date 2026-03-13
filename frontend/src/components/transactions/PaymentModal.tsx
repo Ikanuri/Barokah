@@ -22,7 +22,7 @@ export default function PaymentModal({ show, transaction, paymentAmount, setPaym
   const remaining = transaction.total - (transaction.paid_total || 0);
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <Card className="w-full max-w-md bg-white dark:bg-gray-800">
         <CardHeader>
           <h2 className="text-xl font-bold dark:text-gray-100">Catat Pembayaran</h2>
