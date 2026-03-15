@@ -1,5 +1,19 @@
 # Bug Log POS App
 
+## [SEC-001/002/003] — Security: Role-based Auth & Login Guard ✅ Selesai — 2026-03-15
+- **File:** `backend/routes/api.php`, `frontend/src/components/Layout.tsx`, `frontend/src/app/login/page.tsx`
+- **Masalah:**
+  1. Backend: hanya `/users` yang punya role protection — kasir bisa akses backup restore, delete produk, import data, manage stores.
+  2. Frontend: tidak ada auth guard — user bisa langsung ketik `/dashboard` tanpa login (Layout.tsx hanya filter sidebar menu, tidak redirect).
+  3. Login page tidak redirect jika user sudah login.
+  4. Theme toggle `fixed top-6 right-6` mengganggu layout di mobile.
+- **Solusi:**
+  1. Restruktur `api.php`: 3 tier — all-auth (read produk/pelanggan, POST transaksi, shift-recap), `role:admin|manager` (CRUD produk/kategori/pelanggan, manajemen transaksi, laporan, export), `role:admin` (users, import, backup, stores CRUD).
+  2. Layout.tsx: tambah `hydrated` state, tunggu Zustand hydrate lalu redirect ke `/login` jika `!isAuthenticated`. Tampilkan spinner saat hydrating.
+  3. Login page: `useEffect` redirect ke `/dashboard` jika `mounted && isAuthenticated`.
+  4. Pindah theme toggle ke `absolute top-4 right-4` di dalam card (tidak lagi `fixed`).
+- **Status:** ✅ Selesai — 2026-03-15
+
 ## [BUG-013] — Edit Transaksi: Status Tidak Update Saat Produk Dikurangi + Duplicate Item Paid ✅ Selesai — 2026-03-12
 - **File:** `backend/app/Http/Controllers/Api/TransactionController.php`, `frontend/src/components/EditTransactionModal.tsx`
 - **Masalah:**

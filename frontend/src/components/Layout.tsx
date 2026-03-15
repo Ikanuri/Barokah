@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth';
 import { useThemeStore } from '@/store/theme';
 import { setupSyncListeners, startPeriodicSync } from '@/lib/sync';
@@ -49,9 +49,22 @@ const menuItems = [
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { user, logout } = useAuthStore();
+  const router = useRouter();
+  const { user, isAuthenticated, logout } = useAuthStore();
   const { isDark, toggleTheme } = useThemeStore();
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
+  const [hydrated, setHydrated] = useState(false);
+
+  // Tunggu Zustand hydrate dari localStorage sebelum cek auth
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (hydrated && !isAuthenticated) {
+      router.replace('/login');
+    }
+  }, [hydrated, isAuthenticated, router]);
 
   useEffect(() => {
     if (isDark) {
@@ -84,6 +97,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       cleanupPeriodicSync();
     };
   }, []);
+
+  // Tampilkan spinner saat hydrating atau belum auth — cegah flash konten
+  if (!hydrated || !isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[var(--bg-base)]">
+        <div className="w-8 h-8 border-2 border-[var(--ios-blue)] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   const filteredMenuItems = menuItems.filter(item => {
     if (!item.allowedRoles || item.allowedRoles.length === 0) return true;

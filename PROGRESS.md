@@ -2,6 +2,7 @@
 
 ## ✅ Selesai
 
+- **2026-03-15** — Security: tambah role-based middleware di backend (admin-only & admin|manager groups), auth guard proaktif di Layout.tsx, redirect login jika sudah auth, pindah theme toggle ke dalam card login
 - **2026-03-12** — Implementasi Arus Kas: migration expenses, ExpenseController CRUD, endpoint /expenses/summary, halaman /cash-flow
 - **2026-03-12** — Implementasi Laporan Laba Rugi: endpoint /dashboard/profit-loss + halaman /profit-loss dengan date range picker
 - **2026-03-12** — Implementasi Rekap Shift: endpoint /dashboard/shift-recap + halaman /shift-recap dengan print support

@@ -19,12 +19,19 @@ export default function LoginPage() {
   const [backendStatus, setBackendStatus] = useState<'checking' | 'online' | 'offline'>('online');
   const [mounted, setMounted] = useState(false);
   const router = useRouter();
-  const { setAuth } = useAuthStore();
+  const { isAuthenticated, setAuth } = useAuthStore();
   const { isDark, toggleTheme } = useThemeStore();
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Jika sudah login, langsung ke dashboard
+  useEffect(() => {
+    if (mounted && isAuthenticated) {
+      router.replace('/dashboard');
+    }
+  }, [mounted, isAuthenticated, router]);
 
   useEffect(() => {
     if (isDark) {
@@ -134,22 +141,22 @@ export default function LoginPage() {
         <div className="absolute top-1/3 right-1/4 w-[300px] h-[300px] bg-gradient-to-br from-[var(--ios-pink)]/20 to-[var(--ios-orange)]/15 rounded-full blur-[80px] animate-float" style={{ animationDelay: '-0.75s' }} />
       </div>
 
-      {/* Theme Toggle - Fixed Top Right */}
-      <button
-        onClick={toggleTheme}
-        className="fixed top-6 right-6 z-50 p-3 glass-button"
-        title={isDark ? 'Mode Terang' : 'Mode Gelap'}
-      >
-        {isDark ? (
-          <Sun size={20} className="text-[var(--ios-yellow)]" />
-        ) : (
-          <Moon size={20} className="text-[var(--ios-purple)]" />
-        )}
-      </button>
-
       {/* Login Card */}
       <div className="w-full max-w-md relative z-10 animate-scaleIn">
-        <div className="glass-card-solid p-8">
+        <div className="glass-card-solid p-8 relative">
+
+          {/* Theme Toggle - pojok kanan atas di dalam card */}
+          <button
+            onClick={toggleTheme}
+            className="absolute top-4 right-4 z-10 p-2 glass-button"
+            title={isDark ? 'Mode Terang' : 'Mode Gelap'}
+          >
+            {isDark ? (
+              <Sun size={18} className="text-[var(--ios-yellow)]" />
+            ) : (
+              <Moon size={18} className="text-[var(--ios-purple)]" />
+            )}
+          </button>
           {/* Logo */}
           <div className="text-center mb-8">
             <h1 className="text-4xl font-bold bg-gradient-to-r from-[var(--ios-blue)] via-[var(--ios-purple)] to-[var(--ios-pink)] bg-clip-text text-transparent">

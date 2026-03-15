@@ -2,6 +2,9 @@
 
 ## 🔴 Kritis
 
+- [x] [SEC-001] Tambah role-based middleware di backend routes (admin-only & admin|manager groups)
+- [x] [SEC-002] Tambah auth guard di Layout.tsx — redirect ke /login jika belum auth
+- [x] [SEC-003] Login page: redirect ke /dashboard jika sudah login
 - [ ] [BUG-001] Implementasi Settings save ke API — `settings/page.tsx` + buat endpoint `/api/settings`
 - [ ] [BUG-002] Tambah X-Store-ID header di Axios instance — `frontend/src/lib/api.ts`
 - [ ] [BUG-003] Tambah try-catch error handling di ProductController

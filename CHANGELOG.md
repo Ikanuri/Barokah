@@ -5,6 +5,14 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Security
+- security: tambah role-based middleware di api.php — 3 tier: all-auth (read produk/pelanggan, buat transaksi, shift-recap), role:admin|manager (CRUD produk/kategori/pelanggan, manajemen transaksi, laporan, export), role:admin (users, import massal, backup/restore, stores CRUD)
+- security: tambah auth guard proaktif di Layout.tsx — redirect ke /login jika !isAuthenticated setelah Zustand hydrate, tampilkan spinner saat hydrating untuk cegah flash konten
+
+### Fixed
+- fix: login page tidak redirect jika user sudah login — tambah useEffect redirect ke /dashboard ketika isAuthenticated=true
+- fix: theme toggle di halaman login mengganggu layout mobile (fixed position) — pindah ke absolute top-right di dalam card
+
 ## [1.1.0] - 2026-03-13
 
 ### Fixed
