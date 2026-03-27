@@ -89,10 +89,10 @@ class BackupController extends Controller
             DB::beginTransaction();
 
             if ($mode === 'overwrite') {
-                // Truncate in reverse order to avoid FK violations
+                // DELETE (bukan TRUNCATE) — TRUNCATE menyebabkan implicit commit di MySQL
                 foreach (array_reverse($this->tables) as $table) {
                     try {
-                        DB::table($table)->truncate();
+                        DB::table($table)->delete();
                     } catch (\Exception) {
                         // Skip tables that don't exist
                     }
@@ -150,7 +150,9 @@ class BackupController extends Controller
             ]);
 
         } catch (\Exception $e) {
-            DB::rollBack();
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
             DB::statement('SET FOREIGN_KEY_CHECKS=1');
 
             return response()->json(['message' => 'Restore gagal: ' . $e->getMessage()], 500);
